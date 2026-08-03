@@ -12,6 +12,7 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,400;9..144,500;9..144,600;9..144,700&family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
 <script src="https://unpkg.com/html5-qrcode@2.3.8/html5-qrcode.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 <style>
 :root{
   --bg:#1C1F16;
@@ -356,8 +357,22 @@ footer.credit{text-align:center;font-size:11px;color:var(--ink-soft);opacity:.7;
       </div>
 
       <div class="settings-block">
+        <h3>Synchronisation entre appareils <button type="button" class="info-btn" id="cloudInfoBtn">i</button></h3>
+        <p class="desc" id="cloudStatusText">Non connecté — tes données restent uniquement sur cet appareil.</p>
+        <div id="cloudLoggedOut">
+          <div class="field"><label>Email</label><input type="email" id="cloudEmail" placeholder="toi@exemple.com" inputmode="email"></div>
+          <button class="btn secondary" id="cloudSendLinkBtn">Recevoir un lien de connexion</button>
+        </div>
+        <div id="cloudLoggedIn" class="hidden">
+          <p class="desc">Connecté en tant que <b id="cloudUserEmail"></b>.</p>
+          <p class="desc" id="cloudSyncDetail"></p>
+          <button class="btn ghost" id="cloudLogoutBtn">Se déconnecter</button>
+        </div>
+      </div>
+
+      <div class="settings-block">
         <h3>Mes données</h3>
-        <p class="desc">Tout reste sur cet appareil. Exporte régulièrement pour ne rien perdre si tu changes de téléphone.</p>
+        <p class="desc">Sans connexion (ci-dessus), tout reste uniquement sur cet appareil. Exporte régulièrement pour ne rien perdre si tu changes de téléphone.</p>
         <div id="exportReminder" class="tag-goalhist" style="margin-bottom:12px;"></div>
         <div class="io-row">
           <button class="btn secondary" id="exportBtn">Exporter (.json)</button>
@@ -465,6 +480,23 @@ footer.credit{text-align:center;font-size:11px;color:var(--ink-soft);opacity:.7;
 <div class="toast" id="toast"></div>
 
 <script>
+/* ============================================================
+   SYNCHRONISATION CLOUD — Supabase (optionnelle)
+   Remplis ces deux valeurs après avoir créé ton projet Supabase
+   (Project Settings → API). Si tu les laisses vides, l'appli
+   fonctionne exactement comme avant, en local uniquement.
+   ============================================================ */
+const SUPABASE_URL = 'METTRE_ICI_TON_PROJECT_URL';
+const SUPABASE_ANON_KEY = 'METTRE_ICI_TA_CLE_ANON_PUBLIC';
+
+let supabaseClient = null;
+if(typeof window!=='undefined' && window.supabase && SUPABASE_URL && SUPABASE_ANON_KEY
+   && !SUPABASE_URL.includes('METTRE_ICI') && !SUPABASE_ANON_KEY.includes('METTRE_ICI')){
+  try{ supabaseClient = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY); }
+  catch(e){ console.error('Supabase init échoué', e); }
+}
+let cloudUser = null;
+
 /* ============================================================
    DONNÉES DE RÉFÉRENCE — ALIMENTS
    Valeurs typiques pour 100g/100ml, cohérentes avec les ordres
@@ -639,16 +671,139 @@ async function idbGet(store,key){
   if(storageMode==='localstorage') return lsReadAll(store)[key];
   return memStore[store][key];
 }
-async function idbPut(store,val){
+async function _rawPut(store,val){
   const kp = KEYPATHS[store];
   if(storageMode==='indexeddb') return idbPutIDB(store,val);
   if(storageMode==='localstorage'){ const all=lsReadAll(store); all[val[kp]]=val; lsWriteAll(store,all); return; }
   memStore[store][val[kp]] = val;
 }
+// Écriture "publique" : en plus d'écrire, marque les données comme modifiées
+// localement (horodatage) et programme un envoi vers le cloud si connecté.
+// { silent:true } évite la boucle infinie quand on écrit juste l'horodatage.
+async function idbPut(store,val,opts={}){
+  await _rawPut(store,val);
+  if(!opts.silent){
+    state.meta.lastLocalChangeAt = new Date().toISOString();
+    await _rawPut('meta', {key:'settings', value:state.meta});
+    scheduleCloudPush();
+  }
+}
 async function idbAll(store){
   if(storageMode==='indexeddb') return idbAllIDB(store);
   if(storageMode==='localstorage') return Object.values(lsReadAll(store));
   return Object.values(memStore[store]);
+}
+
+/* ============================================================
+   SYNCHRONISATION CLOUD (Supabase) — optionnelle
+   Fonctionne par-dessus le stockage local existant : chaque
+   écriture locale programme un envoi (debounce 2s) vers la table
+   Supabase, protégée par des règles d'accès (RLS) propres à
+   chaque compte. En cas de connexion sur un 2e appareil, on
+   compare les horodatages et on garde la version la plus récente.
+   ============================================================ */
+let cloudPushTimer = null;
+function scheduleCloudPush(){
+  if(!supabaseClient || !cloudUser) return;
+  clearTimeout(cloudPushTimer);
+  cloudPushTimer = setTimeout(pushToCloud, 2000);
+}
+
+async function pushToCloud(){
+  if(!supabaseClient || !cloudUser) return;
+  try{
+    const days = await idbAll('days');
+    const goals = await idbAll('goals');
+    const customFoods = await idbAll('customFoods');
+    const payload = {meta: state.meta, goals, days, customFoods};
+    const { error } = await supabaseClient.from('assiette_data').upsert({
+      user_id: cloudUser.id,
+      payload,
+      updated_at: new Date().toISOString(),
+    });
+    if(error) throw error;
+    setSyncStatus('Synchronisé à l\'instant.');
+  }catch(e){
+    console.error('Échec de synchronisation (envoi)', e);
+    setSyncStatus('Échec de synchronisation — nouvelle tentative au prochain changement.');
+  }
+}
+
+async function applyCloudPayload(payload){
+  if(payload.meta) state.meta = Object.assign(state.meta, payload.meta);
+  await _rawPut('meta', {key:'settings', value: state.meta});
+  state.dayCache = {};
+  if(payload.goals) for(const g of payload.goals) await _rawPut('goals', g);
+  if(payload.days) for(const d of payload.days) await _rawPut('days', d);
+  if(payload.customFoods) for(const f of payload.customFoods) await _rawPut('customFoods', f);
+  state.goals = await idbAll('goals');
+  state.customFoods = await idbAll('customFoods');
+}
+
+async function pullFromCloud(){
+  if(!supabaseClient || !cloudUser) return;
+  try{
+    const { data, error } = await supabaseClient.from('assiette_data')
+      .select('payload, updated_at').eq('user_id', cloudUser.id).maybeSingle();
+    if(error) throw error;
+    if(!data){ await pushToCloud(); return; } // rien sur le cloud pour l'instant : on y met l'état local
+    const cloudTime = new Date(data.updated_at).getTime();
+    const localTime = state.meta.lastLocalChangeAt ? new Date(state.meta.lastLocalChangeAt).getTime() : 0;
+    if(cloudTime > localTime){
+      await applyCloudPayload(data.payload);
+      toast('Données synchronisées depuis le cloud');
+      await renderAll();
+    } else if(localTime > cloudTime){
+      await pushToCloud();
+    }
+    setSyncStatus('Synchronisé.');
+  }catch(e){
+    console.error('Échec de synchronisation (réception)', e);
+    setSyncStatus('Échec de synchronisation lors de la connexion.');
+  }
+}
+
+function setSyncStatus(msg){
+  const el = document.getElementById('cloudSyncDetail');
+  if(el) el.textContent = msg;
+}
+
+async function initCloudSync(){
+  renderAccountUI();
+  if(!supabaseClient) return;
+  try{
+    const { data:{ session } } = await supabaseClient.auth.getSession();
+    cloudUser = session?.user || null;
+  }catch(e){ console.error('Supabase getSession a échoué', e); }
+  supabaseClient.auth.onAuthStateChange((event, session)=>{
+    cloudUser = session?.user || null;
+    renderAccountUI();
+    if(cloudUser) pullFromCloud();
+  });
+  renderAccountUI();
+  if(cloudUser) await pullFromCloud();
+}
+
+function renderAccountUI(){
+  const statusText = document.getElementById('cloudStatusText');
+  const loggedOut = document.getElementById('cloudLoggedOut');
+  const loggedIn = document.getElementById('cloudLoggedIn');
+  if(!statusText) return;
+  if(!supabaseClient){
+    statusText.textContent = "Synchronisation non configurée sur ce déploiement (voir le fichier README/instructions).";
+    loggedOut.classList.add('hidden'); loggedIn.classList.add('hidden');
+    return;
+  }
+  if(cloudUser){
+    loggedOut.classList.add('hidden');
+    loggedIn.classList.remove('hidden');
+    document.getElementById('cloudUserEmail').textContent = cloudUser.email;
+    statusText.textContent = "Connecté — tes données se synchronisent automatiquement entre tes appareils.";
+  }else{
+    loggedOut.classList.remove('hidden');
+    loggedIn.classList.add('hidden');
+    statusText.textContent = "Non connecté — tes données restent uniquement sur cet appareil.";
+  }
 }
 
 // Tente IndexedDB, puis localStorage, puis mémoire — ne rejette jamais.
@@ -674,7 +829,7 @@ async function initStorage(){
    ============================================================ */
 let state = {
   currentDate: todayStr(),
-  meta: {weightKg:70, waterGoalL:2.0, stepsGoal:10000, age:null, heightCm:null, sex:'Homme', activityLevel:'modere', lastExportAt:null},
+  meta: {weightKg:70, waterGoalL:2.0, stepsGoal:10000, age:null, heightCm:null, sex:'Homme', activityLevel:'modere', lastExportAt:null, lastLocalChangeAt:null},
   goals: [],
   dayCache: {},
   customFoods: [],
@@ -747,8 +902,9 @@ async function init(){
     if(m) state.meta = Object.assign(state.meta, m.value);
     const goals = await idbAll('goals');
     state.goals = goals.length? goals : [{from:'0000-00-00', kcal:2000, prot:100, carb:250, fat:65}];
-    if(!goals.length) await idbPut('goals', state.goals[0]);
+    if(!goals.length) await _rawPut('goals', state.goals[0]);
     state.customFoods = await idbAll('customFoods');
+    await initCloudSync();
   }catch(e){
     console.error('Erreur de chargement des données :', e);
     toast('Erreur au chargement des données sauvegardées');
@@ -1049,8 +1205,9 @@ function updateFoodComputed(){
 let html5Qr = null;
 async function startScan(){
   document.getElementById('qr-region').innerHTML='';
-  html5Qr = new Html5Qrcode("qr-region");
   try{
+    if(typeof Html5Qrcode==='undefined') throw new Error('Html5Qrcode indisponible');
+    html5Qr = new Html5Qrcode("qr-region");
     await html5Qr.start(
       {facingMode:"environment"},
       {fps:10, qrbox:{width:250,height:120}},
@@ -1062,7 +1219,7 @@ async function startScan(){
       ()=>{}
     );
   }catch(e){
-    toast("Caméra indisponible");
+    toast("Scanner indisponible dans ce navigateur/mode d'ouverture");
   }
 }
 async function lookupBarcode(code){
@@ -1444,6 +1601,30 @@ function bindEvents(){
     toast('Sauvegarde exportée');
   };
   document.getElementById('importBtn').onclick = ()=> document.getElementById('importFile').click();
+
+  // Synchronisation cloud (optionnelle)
+  document.getElementById('cloudSendLinkBtn').onclick = async ()=>{
+    if(!supabaseClient){ toast('Synchronisation non configurée sur ce déploiement'); return; }
+    const email = document.getElementById('cloudEmail').value.trim();
+    if(!email){ toast('Indique un email'); return; }
+    const { error } = await supabaseClient.auth.signInWithOtp({
+      email,
+      options: { emailRedirectTo: window.location.href.split('#')[0] }
+    });
+    if(error){ toast('Erreur : '+error.message); return; }
+    toast('Lien envoyé — vérifie tes emails');
+  };
+  document.getElementById('cloudLogoutBtn').onclick = async ()=>{
+    if(!supabaseClient) return;
+    await supabaseClient.auth.signOut();
+    toast('Déconnecté');
+  };
+  document.getElementById('cloudInfoBtn').onclick = ()=> openInfoModal(
+    "Comment ça marche ?",
+    `<p>Connecte-toi avec ton email (un lien te suffit, pas de mot de passe à retenir) pour synchroniser automatiquement tes données entre tes appareils.</p>
+     <p>Tes données restent privées : elles sont stockées sur un serveur (Supabase) protégé par des règles d'accès qui garantissent que seul ton compte peut les lire ou les modifier — personne d'autre, même en connaissant l'adresse de cette page.</p>
+     <p>Sans connexion, l'appli continue de fonctionner normalement, mais uniquement sur cet appareil.</p>`
+  );
   document.getElementById('importFile').onchange = async e=>{
     const file = e.target.files[0]; if(!file) return;
     const text = await file.text();
