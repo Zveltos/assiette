@@ -274,7 +274,7 @@ footer.credit{text-align:center;font-size:11px;color:var(--ink-soft);opacity:.7;
       </div>
     </section>
 
-    <footer class="credit"></footer>
+    <footer class="credit">Données stockées uniquement sur cet appareil (IndexedDB). Base d'aliments élargie (versions crues et cuites) type CIQUAL/EFSA · scan code-barres via Open Food Facts (connexion requise) · dépense sportive estimée par équivalent MET, affinée par ton métabolisme de base si ton profil est complété.</footer>
   </div>
 
   <div id="viewCalendar" class="hidden">
@@ -467,7 +467,7 @@ footer.credit{text-align:center;font-size:11px;color:var(--ink-soft);opacity:.7;
   </div>
 </div>
 
-<!-- MODALE D'INFO GÉNÉRIQUE -->
+<!-- MODALE D'INFO GÉNÉRIQUE (petites explications contextuelles) -->
 <div class="sheet-backdrop" id="infoBackdrop">
   <div class="sheet">
     <div class="sheet-handle"></div>
@@ -480,8 +480,14 @@ footer.credit{text-align:center;font-size:11px;color:var(--ink-soft);opacity:.7;
 <div class="toast" id="toast"></div>
 
 <script>
-const SUPABASE_URL = 'https://hfclvfinyheksxgbduix.supabase.co';
-const SUPABASE_ANON_KEY = 'sb_publishable_5LhjX9CywCZKTjihcN-WiA_2nz0KuI7';
+/* ============================================================
+   SYNCHRONISATION CLOUD — Supabase (optionnelle)
+   Remplis ces deux valeurs après avoir créé ton projet Supabase
+   (Project Settings → API). Si tu les laisses vides, l'appli
+   fonctionne exactement comme avant, en local uniquement.
+   ============================================================ */
+const SUPABASE_URL = 'https://hfclvfinyheksxgbduix.supabase.co' ;
+const SUPABASE_ANON_KEY = 'sb_publishable_5LhjX9CywCZKTjihcN-WiA_2nz0KuI7' ;
 
 let supabaseClient = null;
 if(typeof window!=='undefined' && window.supabase && SUPABASE_URL && SUPABASE_ANON_KEY
@@ -491,7 +497,15 @@ if(typeof window!=='undefined' && window.supabase && SUPABASE_URL && SUPABASE_AN
 }
 let cloudUser = null;
 
+/* ============================================================
+   DONNÉES DE RÉFÉRENCE — ALIMENTS
+   Valeurs typiques pour 100g/100ml, cohérentes avec les ordres
+   de grandeur des tables CIQUAL (ANSES) / EFSA. Versions "cru"
+   et "cuit" séparées quand la différence de poids/densité est
+   significative (féculents, légumineuses, viandes, poissons).
+   ============================================================ */
 const FOOD_DB = [
+ // Légumes
  {n:"Tomate",cat:"Légume",k:18,p:0.9,c:3.9,f:0.2,unitG:120},
  {n:"Carotte",cat:"Légume",k:41,p:0.9,c:10,f:0.2,unitG:80},
  {n:"Courgette",cat:"Légume",k:17,p:1.2,c:3.1,f:0.3,unitG:200},
@@ -502,6 +516,7 @@ const FOOD_DB = [
  {n:"Concombre",cat:"Légume",k:15,p:0.7,c:3.6,f:0.1},
  {n:"Salade verte",cat:"Légume",k:15,p:1.4,c:2.9,f:0.2},
  {n:"Champignon de Paris",cat:"Légume",k:22,p:3.1,c:3.3,f:0.3},
+ // Fruits
  {n:"Pomme",cat:"Fruit",k:52,p:0.3,c:14,f:0.2,unitG:180},
  {n:"Banane",cat:"Fruit",k:89,p:1.1,c:23,f:0.3,unitG:120},
  {n:"Orange",cat:"Fruit",k:47,p:0.9,c:12,f:0.1,unitG:150},
@@ -512,6 +527,7 @@ const FOOD_DB = [
  {n:"Pastèque",cat:"Fruit",k:30,p:0.6,c:7.6,f:0.2},
  {n:"Avocat",cat:"Fruit",k:160,p:2,c:8.5,f:15,unitG:200},
  {n:"Citron",cat:"Fruit",k:29,p:1.1,c:9.3,f:0.3,unitG:60},
+ // Féculents & légumineuses
  {n:"Riz blanc (cru)",cat:"Féculent",k:349,p:7.1,c:77,f:0.6},
  {n:"Riz blanc (cuit)",cat:"Féculent",k:130,p:2.7,c:28,f:0.3},
  {n:"Riz complet (cru)",cat:"Féculent",k:350,p:7.5,c:72,f:2.7},
@@ -530,6 +546,7 @@ const FOOD_DB = [
  {n:"Pain complet",cat:"Féculent",k:247,p:13,c:41,f:4.2,unitG:30},
  {n:"Flocons d'avoine (secs)",cat:"Féculent",k:389,p:16.9,c:66,f:6.9},
  {n:"Semoule de couscous (cuite)",cat:"Féculent",k:112,p:3.8,c:23,f:0.2},
+ // Viandes / poissons / œufs
  {n:"Blanc de poulet (cru)",cat:"Viande/poisson/œuf",k:120,p:22.5,c:0,f:2.6},
  {n:"Blanc de poulet (cuit)",cat:"Viande/poisson/œuf",k:165,p:31,c:0,f:3.6},
  {n:"Escalope de dinde (crue)",cat:"Viande/poisson/œuf",k:104,p:22,c:0,f:1.4},
@@ -546,22 +563,28 @@ const FOOD_DB = [
  {n:"Jambon blanc",cat:"Viande/poisson/œuf",k:145,p:21,c:1,f:6,unitG:25},
  {n:"Crevettes (cuites)",cat:"Viande/poisson/œuf",k:99,p:24,c:0.2,f:0.3},
  {n:"Tofu nature",cat:"Viande/poisson/œuf",k:76,p:8,c:1.9,f:4.8},
+ // Laitiers
  {n:"Lait demi-écrémé",cat:"Laitier",k:46,p:3.3,c:4.8,f:1.5,isLiquid:true},
  {n:"Yaourt nature",cat:"Laitier",k:61,p:3.5,c:4.7,f:3.3,unitG:125},
  {n:"Fromage blanc 0%",cat:"Laitier",k:45,p:7.5,c:4,f:0.2},
  {n:"Emmental",cat:"Laitier",k:380,p:28,c:0,f:29},
  {n:"Camembert",cat:"Laitier",k:300,p:20,c:0.5,f:24},
  {n:"Skyr",cat:"Laitier",k:63,p:10,c:4,f:0.2},
+ // Matières grasses
  {n:"Huile d'olive",cat:"Matière grasse",k:900,p:0,c:0,f:100,isLiquid:true},
  {n:"Beurre",cat:"Matière grasse",k:717,p:0.8,c:0.1,f:81},
  {n:"Amandes",cat:"Matière grasse",k:579,p:21,c:22,f:50},
  {n:"Noix",cat:"Matière grasse",k:654,p:15,c:14,f:65},
  {n:"Beurre de cacahuète",cat:"Matière grasse",k:588,p:25,c:20,f:50},
+ // Autres
  {n:"Chocolat noir 70%",cat:"Autre",k:598,p:7.8,c:46,f:43},
  {n:"Miel",cat:"Autre",k:304,p:0.3,c:82,f:0},
  {n:"Sucre",cat:"Autre",k:400,p:0,c:100,f:0},
 ];
 
+/* MET = équivalent métabolique (Compendium of Physical Activities,
+   référence en médecine du sport). stepsPerMin permet d'estimer
+   automatiquement le nombre de pas pour les activités de marche/course. */
 const MET_DB = [
  {n:"Marche lente (~3 km/h)",met:2.8,stepsPerMin:85,steps:true},
  {n:"Marche normale (~5 km/h)",met:3.5,stepsPerMin:105,steps:true},
@@ -596,8 +619,16 @@ const MET_DB = [
  {n:"Ménage / jardinage",met:3.5},
 ];
 
+/* ============================================================
+   STOCKAGE — IndexedDB avec repli automatique
+   Si IndexedDB est indisponible ou échoue (navigation privée iOS,
+   webview restreint, etc.), on bascule sur localStorage, puis en
+   dernier recours sur une mémoire volatile (session uniquement).
+   Objectif : l'appli — et donc TOUS les boutons — reste utilisable
+   quoi qu'il arrive, jamais bloquée par un souci de stockage.
+   ============================================================ */
 let db;
-let storageMode = 'indexeddb';
+let storageMode = 'indexeddb'; // 'indexeddb' | 'localstorage' | 'memory'
 const DB_NAME="assiette_db", DB_VER=2;
 const KEYPATHS = {meta:'key', goals:'from', days:'date', customFoods:'id'};
 const memStore = {meta:{}, goals:{}, days:{}, customFoods:{}};
@@ -626,6 +657,7 @@ function idbGetIDB(store,key){ return new Promise((res,rej)=>{const r=tx(store).
 function idbPutIDB(store,val){ return new Promise((res,rej)=>{const r=tx(store,'readwrite').put(val); r.onsuccess=()=>res(); r.onerror=rej;}); }
 function idbAllIDB(store){ return new Promise((res,rej)=>{const out=[]; const r=tx(store).openCursor(); r.onsuccess=e=>{const c=e.target.result; if(c){out.push(c.value); c.continue();} else res(out);}; r.onerror=rej;}); }
 
+// --- repli localStorage : chaque "store" est un objet {clé: valeur} sérialisé ---
 function lsKey(store){ return 'assiette_ls_'+store; }
 function lsReadAll(store){
   try{ return JSON.parse(localStorage.getItem(lsKey(store))||'{}'); }
@@ -633,6 +665,7 @@ function lsReadAll(store){
 }
 function lsWriteAll(store,obj){ localStorage.setItem(lsKey(store), JSON.stringify(obj)); }
 
+// --- API unifiée utilisée par le reste de l'appli ---
 async function idbGet(store,key){
   if(storageMode==='indexeddb') return idbGetIDB(store,key);
   if(storageMode==='localstorage') return lsReadAll(store)[key];
@@ -644,6 +677,9 @@ async function _rawPut(store,val){
   if(storageMode==='localstorage'){ const all=lsReadAll(store); all[val[kp]]=val; lsWriteAll(store,all); return; }
   memStore[store][val[kp]] = val;
 }
+// Écriture "publique" : en plus d'écrire, marque les données comme modifiées
+// localement (horodatage) et programme un envoi vers le cloud si connecté.
+// { silent:true } évite la boucle infinie quand on écrit juste l'horodatage.
 async function idbPut(store,val,opts={}){
   await _rawPut(store,val);
   if(!opts.silent){
@@ -658,6 +694,14 @@ async function idbAll(store){
   return Object.values(memStore[store]);
 }
 
+/* ============================================================
+   SYNCHRONISATION CLOUD (Supabase) — optionnelle
+   Fonctionne par-dessus le stockage local existant : chaque
+   écriture locale programme un envoi (debounce 2s) vers la table
+   Supabase, protégée par des règles d'accès (RLS) propres à
+   chaque compte. En cas de connexion sur un 2e appareil, on
+   compare les horodatages et on garde la version la plus récente.
+   ============================================================ */
 let cloudPushTimer = null;
 function scheduleCloudPush(){
   if(!supabaseClient || !cloudUser) return;
@@ -702,7 +746,7 @@ async function pullFromCloud(){
     const { data, error } = await supabaseClient.from('assiette_data')
       .select('payload, updated_at').eq('user_id', cloudUser.id).maybeSingle();
     if(error) throw error;
-    if(!data){ await pushToCloud(); return; }
+    if(!data){ await pushToCloud(); return; } // rien sur le cloud pour l'instant : on y met l'état local
     const cloudTime = new Date(data.updated_at).getTime();
     const localTime = state.meta.lastLocalChangeAt ? new Date(state.meta.lastLocalChangeAt).getTime() : 0;
     if(cloudTime > localTime){
@@ -734,11 +778,9 @@ async function initCloudSync(){
   supabaseClient.auth.onAuthStateChange((event, session)=>{
     cloudUser = session?.user || null;
     renderAccountUI();
-    renderFooterCredit();
     if(cloudUser) pullFromCloud();
   });
   renderAccountUI();
-  renderFooterCredit();
   if(cloudUser) await pullFromCloud();
 }
 
@@ -764,22 +806,13 @@ function renderAccountUI(){
   }
 }
 
-/* CORRECTIF 2 : Footer dynamique */
-function renderFooterCredit(){
-  const el = document.querySelector('footer.credit');
-  if(!el) return;
-  const syncPart = cloudUser
-    ? `Synchronisé automatiquement avec ton compte (${cloudUser.email}).`
-    : `Données stockées uniquement sur cet appareil (IndexedDB, avec repli localStorage/mémoire).`;
-  el.innerHTML = `${syncPart} Base d'aliments élargie (versions crues et cuites) type CIQUAL/EFSA · scan code-barres via Open Food Facts (connexion requise) · dépense sportive estimée par équivalent MET, affinée par ton métabolisme de base si ton profil est complété.`;
-}
-
+// Tente IndexedDB, puis localStorage, puis mémoire — ne rejette jamais.
 async function initStorage(){
   try{
     await openDB();
     storageMode = 'indexeddb';
     return;
-  }catch(e){}
+  }catch(e){ /* on tente le repli */ }
   try{
     localStorage.setItem('assiette_ls_test','1');
     localStorage.removeItem('assiette_ls_test');
@@ -791,6 +824,9 @@ async function initStorage(){
   }
 }
 
+/* ============================================================
+   ÉTAT
+   ============================================================ */
 let state = {
   currentDate: todayStr(),
   meta: {weightKg:70, waterGoalL:2.0, stepsGoal:10000, age:null, heightCm:null, sex:'Homme', activityLevel:'modere', lastExportAt:null, lastLocalChangeAt:null},
@@ -836,6 +872,9 @@ async function saveDay(dateStr){
   await idbPut('days', state.dayCache[dateStr]);
 }
 
+/* ============================================================
+   MÉTABOLISME — Mifflin-St Jeor
+   ============================================================ */
 function calcBMR(){
   const {weightKg:w, heightCm:h, age:a, sex:s} = state.meta;
   if(!w || !h || !a) return null;
@@ -848,7 +887,12 @@ function calcExerciseKcal(met, durationMin){
   return {kcal: met*3.5*(state.meta.weightKg||70)/200*durationMin, precise:false};
 }
 
+/* ============================================================
+   INIT
+   ============================================================ */
 async function init(){
+  // On attache d'abord tous les boutons, indépendamment du stockage :
+  // même si l'étape suivante échoue, l'appli reste cliquable.
   populateExerciseSelect();
   bindEvents();
 
@@ -870,19 +914,21 @@ async function init(){
   checkExportReminderToast();
 }
 
-/* CORRECTIF 3 : Rappel d'export assoupli à 30 jours */
 async function checkExportReminderToast(){
   try{
     const days = await idbAll('days');
     const hasData = days.some(d=> d.meals.length || d.exercises.length || d.water);
-    if(!hasData) return;
+    if(!hasData) return; // rien à perdre, pas la peine d'alerter
     const last = state.meta.lastExportAt;
-    if(!last || daysSince(last)>=30){
+    if(!last || daysSince(last)>=7){
       setTimeout(()=> toast('Pense à exporter tes données (Réglages) — pas de sauvegarde récente'), 600);
     }
-  }catch(e){}
+  }catch(e){ /* pas bloquant */ }
 }
 
+/* ============================================================
+   RENDU — VUE AUJOURD'HUI
+   ============================================================ */
 async function renderAll(){
   document.getElementById('dateLabel').textContent = fmtDateLabel(state.currentDate);
   const day = await getDay(state.currentDate);
@@ -967,7 +1013,6 @@ async function renderAll(){
   renderMacroBalanceMsg();
   renderBMRSuggestion();
   renderExportReminder();
-  renderFooterCredit();
 }
 
 function renderSuggestSplit(kcal){
@@ -981,6 +1026,11 @@ function renderMacroBalanceMsg(){
   document.getElementById('macroBalanceMsg').textContent = `Total macros actuel : ${Math.round(total)} kcal (objectif ${Math.round(kcalTarget)} kcal).`;
 }
 
+/* ============================================================
+   RAPPEL D'EXPORT — encourage une sauvegarde .json régulière,
+   car IndexedDB/localStorage peuvent être effacés par Safari
+   (ex. 7 jours d'inactivité sur le site, pression sur le stockage).
+   ============================================================ */
 function daysSince(iso){
   return Math.floor((Date.now() - new Date(iso).getTime()) / 86400000);
 }
@@ -996,7 +1046,7 @@ function renderExportReminder(){
   const d = daysSince(last);
   const label = d<=0 ? "aujourd'hui" : d===1 ? "il y a 1 jour" : `il y a ${d} jours`;
   el.textContent = `Dernière sauvegarde : ${label}.`;
-  el.className = 'tag-goalhist' + (d>=30 ? ' warn' : '');
+  el.className = 'tag-goalhist' + (d>=7 ? ' warn' : '');
 }
 
 function renderBMRSuggestion(){
@@ -1043,6 +1093,32 @@ function scaleMacrosToKcal(oldTotal, newTarget){
   });
 }
 
+function rebalanceMacros(editedKey){
+  const kcalTarget = parseFloat(document.getElementById('setKcal').value)||0;
+  const kPerG = {prot:4, carb:4, fat:9};
+  const ids = {prot:'setProt', carb:'setCarb', fat:'setFat'};
+  let vals = {
+    prot: parseFloat(document.getElementById('setProt').value)||0,
+    carb: parseFloat(document.getElementById('setCarb').value)||0,
+    fat: parseFloat(document.getElementById('setFat').value)||0,
+  };
+  const otherKeys = Object.keys(vals).filter(k=>k!==editedKey);
+  const editedKcal = vals[editedKey]*kPerG[editedKey];
+  let remaining = kcalTarget - editedKcal;
+  if(remaining<0) remaining = 0;
+  const otherTotalKcal = otherKeys.reduce((s,k)=>s+vals[k]*kPerG[k],0);
+  if(otherTotalKcal<=0){
+    otherKeys.forEach(k=>{ vals[k] = (remaining/otherKeys.length)/kPerG[k]; });
+  }else{
+    otherKeys.forEach(k=>{
+      const share = (vals[k]*kPerG[k])/otherTotalKcal;
+      vals[k] = (remaining*share)/kPerG[k];
+    });
+  }
+  otherKeys.forEach(k=>{ document.getElementById(ids[k]).value = Math.max(0, Math.round(vals[k])); });
+  renderMacroBalanceMsg();
+}
+
 function renderGoalHistory(){
   const wrap = document.getElementById('goalHistory');
   const sorted = [...state.goals].sort((a,b)=>a.from.localeCompare(b.from));
@@ -1071,6 +1147,9 @@ function toast(msg){
   toast._t = setTimeout(()=>t.classList.remove('show'), 1800);
 }
 
+/* ============================================================
+   RECHERCHE ALIMENT
+   ============================================================ */
 function allFoods(){ return FOOD_DB.concat(state.customFoods); }
 function searchFoods(q){
   q = q.trim().toLowerCase();
@@ -1121,7 +1200,7 @@ function updateFoodComputed(){
 }
 
 /* ============================================================
-   CORRECTIF 1 : SCANNER CODE-BARRES (Formats 1D/2D + Box adaptative)
+   SCAN CODE-BARRES (Open Food Facts)
    ============================================================ */
 let html5Qr = null;
 async function startScan(){
@@ -1129,43 +1208,20 @@ async function startScan(){
   try{
     if(typeof Html5Qrcode==='undefined') throw new Error('Html5Qrcode indisponible');
     html5Qr = new Html5Qrcode("qr-region");
-    
-    // Détermination dynamique d'une zone de visée proportionnelle à l'écran
-    const screenWidth = window.innerWidth > 0 ? window.innerWidth : 360;
-    const boxWidth = Math.min(280, Math.floor(screenWidth * 0.75));
-    const boxHeight = Math.floor(boxWidth * 0.45);
-
-    const config = {
-      fps: 15,
-      qrbox: { width: boxWidth, height: boxHeight },
-      // Force les formats produits EAN / UPC pour que le lecteur les reconnaisse
-      formatsToSupport: [
-        Html5QrcodeSupportedFormats.EAN_13,
-        Html5QrcodeSupportedFormats.EAN_8,
-        Html5QrcodeSupportedFormats.UPC_A,
-        Html5QrcodeSupportedFormats.UPC_E,
-        Html5QrcodeSupportedFormats.CODE_128,
-        Html5QrcodeSupportedFormats.QR_CODE
-      ]
-    };
-
     await html5Qr.start(
-      { facingMode: "environment" },
-      config,
-      async (decodedText) => {
-        await html5Qr.stop();
-        html5Qr.clear();
-        toast('Code détecté : ' + decodedText);
+      {facingMode:"environment"},
+      {fps:10, qrbox:{width:250,height:120}},
+      async(decodedText)=>{
+        await html5Qr.stop(); html5Qr.clear();
+        toast('Code détecté : '+decodedText);
         await lookupBarcode(decodedText);
       },
-      () => {}
+      ()=>{}
     );
-  } catch(e) {
-    console.error("Erreur startScan:", e);
-    toast("Scanner indisponible ou permission caméra refusée");
+  }catch(e){
+    toast("Scanner indisponible dans ce navigateur/mode d'ouverture");
   }
 }
-
 async function lookupBarcode(code){
   try{
     const res = await fetch(`https://world.openfoodfacts.org/api/v0/product/${code}.json`);
@@ -1184,6 +1240,9 @@ async function lookupBarcode(code){
   }
 }
 
+/* ============================================================
+   ALIMENT PERSONNALISÉ
+   ============================================================ */
 async function saveCustomFood(){
   const name = document.getElementById('cfName').value.trim();
   if(!name){ toast('Indique un nom'); return; }
@@ -1203,6 +1262,9 @@ async function saveCustomFood(){
   toast('Aliment personnalisé créé');
 }
 
+/* ============================================================
+   EXERCICE
+   ============================================================ */
 function populateExerciseSelect(){
   const sel = document.getElementById('exSelect');
   sel.innerHTML = MET_DB.map(e=>`<option value="${e.n}">${e.n}</option>`).join('') + `<option value="CUSTOM">Personnalisé…</option>`;
@@ -1212,7 +1274,6 @@ function populateExerciseSelect(){
     updateExPreview();
   };
 }
-
 function updateExPreview(){
   const name = document.getElementById('exSelect').value;
   const dur = parseFloat(document.getElementById('exDuration').value)||0;
@@ -1230,6 +1291,9 @@ function updateExPreview(){
   document.getElementById('exPreview').innerHTML = `<b>${Math.round(kcal)} kcal</b> estimées — MET ${met} sur ${dur} min (${precisionNote}).${stepsEst? `<br>≈ ${stepsEst} pas seront comptabilisés automatiquement.`:''}`;
 }
 
+/* ============================================================
+   CALENDRIER
+   ============================================================ */
 function mondayOf(dateStr){
   const d = new Date(dateStr+'T12:00:00');
   const wd = (d.getDay()+6)%7;
@@ -1333,6 +1397,9 @@ function renderCalMonth(){
   });
 }
 
+/* ============================================================
+   ÉVÉNEMENTS
+   ============================================================ */
 function bindEvents(){
   document.getElementById('prevDay').onclick = ()=>{ changeDay(-1); };
   document.getElementById('nextDay').onclick = ()=>{ changeDay(1); };
@@ -1359,6 +1426,7 @@ function bindEvents(){
     };
   });
 
+  // Calendar
   document.getElementById('tabCalWeek').onclick = ()=>{ state.cal.mode='week'; renderCalendar(); };
   document.getElementById('tabCalMonth').onclick = ()=>{ state.cal.mode='month'; renderCalendar(); };
   document.getElementById('calPrev').onclick = ()=>{
@@ -1372,133 +1440,149 @@ function bindEvents(){
     state.cal.anchor = todayStr(d); renderCalendar();
   };
 
+  // Food modal
   document.getElementById('openFoodModal').onclick = ()=> openFoodModal();
   document.getElementById('closeFoodModal').onclick = ()=> closeFoodModal();
-  document.getElementById('tabSearch').onclick = ()=> switchFoodTab('search');
-  document.getElementById('tabScan').onclick = ()=> { switchFoodTab('scan'); startScan(); };
-  document.getElementById('tabCustomFood').onclick = ()=> switchFoodTab('custom');
-
+  document.getElementById('tabSearch').onclick = ()=> setFoodTab('search');
+  document.getElementById('tabScan').onclick = ()=> setFoodTab('scan');
+  document.getElementById('tabCustomFood').onclick = ()=> setFoodTab('custom');
   document.getElementById('foodSearchInput').oninput = e=>{
     const results = searchFoods(e.target.value);
-    const wrap = document.getElementById('foodResults');
-    wrap.classList.remove('hidden');
-    wrap.innerHTML = results.length ? '' : '<div class="empty">Aucun aliment trouvé</div>';
-    results.forEach(f=>{
-      const item = document.createElement('div'); item.className='sr-item';
-      item.innerHTML = `<span class="sr-name">${f.n}</span><span class="sr-meta">${f.k} kcal · P${f.p} G${f.c} L${f.f}</span>`;
-      item.onclick = ()=> selectFood(f);
-      wrap.appendChild(item);
-    });
+    const box = document.getElementById('foodResults');
+    if(!results.length){ box.classList.add('hidden'); box.innerHTML=''; return; }
+    box.classList.remove('hidden');
+    box.innerHTML = results.map((f,i)=>`<div class="sr-item" data-i="${i}"><span class="sr-name">${f.n}</span><span class="sr-meta">${f.k} kcal /100${f.isLiquid?'ml':'g'}</span></div>`).join('');
+    [...box.children].forEach((el,i)=> el.onclick = ()=> selectFood(results[i]));
   };
-
-  document.getElementById('startScanBtn').onclick = ()=> startScan();
-  document.getElementById('saveCustomFoodBtn').onclick = ()=> saveCustomFood();
-  document.getElementById('foodQty').oninput = ()=> updateFoodComputed();
-  document.getElementById('cancelFoodSelectBtn').onclick = ()=> {
+  document.getElementById('startScanBtn').onclick = startScan;
+  document.getElementById('saveCustomFoodBtn').onclick = saveCustomFood;
+  document.getElementById('foodQty').oninput = updateFoodComputed;
+  document.getElementById('cancelFoodSelectBtn').onclick = ()=>{
+    state.pendingFood=null;
     document.getElementById('foodSelected').classList.add('hidden');
-    document.getElementById('foodSearchPane').classList.remove('hidden');
+    setFoodTab('search');
   };
   document.getElementById('confirmFoodBtn').onclick = async ()=>{
-    const f = state.pendingFood; if(!f || !f._computed) return;
+    const f = state.pendingFood;
+    if(!f || !f._computed) return;
     const day = await getDay(state.currentDate);
-    day.meals.push({
-      name: f.name,
-      k: f._computed.k, p: f._computed.p, c: f._computed.c, f: f._computed.f,
-      qtyLabel: f._computed.qtyLabel,
-    });
+    day.meals.push({name:f.name, k:f._computed.k, p:f._computed.p, c:f._computed.c, f:f._computed.f, qtyLabel:f._computed.qtyLabel});
     await saveDay(state.currentDate);
     closeFoodModal();
     renderAll();
     toast('Aliment ajouté');
   };
 
-  document.getElementById('openExModal').onclick = ()=> openExModal();
-  document.getElementById('closeExModal').onclick = ()=> closeExModal();
-  document.getElementById('exDuration').oninput = ()=> updateExPreview();
-  document.getElementById('exCustomMet').oninput = ()=> updateExPreview();
+  // Exercise modal
+  document.getElementById('openExModal').onclick = ()=>{
+    document.getElementById('exBackdrop').classList.add('open');
+    document.getElementById('exSelect').value = document.getElementById('exSelect').options[0].value;
+    document.getElementById('exCustomFields').classList.add('hidden');
+    updateExPreview();
+  };
+  document.getElementById('closeExModal').onclick = ()=> document.getElementById('exBackdrop').classList.remove('open');
+
+  // Info modal générique
+  document.getElementById('closeInfoModal').onclick = closeInfoModal;
+  document.getElementById('activityInfoBtn').onclick = ()=> openInfoModal(
+    "D'où vient ce coefficient ?",
+    `<p>Ces facteurs (1.2 pour "sédentaire", jusqu'à 1.9 pour "très actif") viennent de la formule Mifflin-St&nbsp;Jeor / Harris-Benedict, une référence classique en nutrition pour estimer la dépense calorique totale (TDEE = métabolisme de base × facteur).</p>
+     <p>Ce n'est pas juste "se lever pour aller aux toilettes" — le facteur couvre trois choses cumulées sur 24h :</p>
+     <p>• <b>La digestion</b> (~10% des calories ingérées, rien que pour les assimiler)<br>
+     • <b>Le NEAT</b> (tonus musculaire, petits gestes, position assise/debout)<br>
+     • <b>Le fait d'être éveillé</b> plutôt qu'allongé au repos complet, base de calcul du métabolisme de base</p>
+     <p>Exemple : pour un métabolisme de base de 1600&nbsp;kcal, le facteur 1.2 ajoute environ 320&nbsp;kcal — pas 500+.</p>
+     <p>Ce sont des moyennes de population, pas une mesure individuelle : si tu penses qu'elles surestiment ta dépense réelle, tu peux volontairement viser un objectif calorique un peu plus bas que la suggestion.</p>`
+  );
+  document.getElementById('exDuration').oninput = updateExPreview;
+  document.getElementById('exCustomMet').oninput = updateExPreview;
+  document.getElementById('exCustomName').oninput = updateExPreview;
   document.getElementById('confirmExBtn').onclick = async ()=>{
-    const nameSel = document.getElementById('exSelect').value;
+    const name = document.getElementById('exSelect').value;
     const dur = parseFloat(document.getElementById('exDuration').value)||0;
     let met, activityName, stepsPerMin=0;
-    if(nameSel==='CUSTOM'){
+    if(name==='CUSTOM'){
       met = parseFloat(document.getElementById('exCustomMet').value)||0;
       activityName = document.getElementById('exCustomName').value.trim()||'Activité personnalisée';
-    } else {
-      const found = MET_DB.find(e=>e.n===nameSel);
+      if(!met){ toast('Indique une valeur MET'); return; }
+    }else{
+      const found = MET_DB.find(e=>e.n===name);
       met = found.met; activityName = found.n; stepsPerMin = found.stepsPerMin||0;
     }
     const {kcal} = calcExerciseKcal(met, dur);
-    const stepsEst = stepsPerMin ? Math.round(stepsPerMin*dur) : 0;
-
+    const stepsEst = stepsPerMin? Math.round(stepsPerMin*dur) : 0;
     const day = await getDay(state.currentDate);
     day.exercises.push({name:activityName, duration:dur, kcal, steps:stepsEst});
-    if(stepsEst){ day.steps = (day.steps||0) + stepsEst; }
+    if(stepsEst) day.steps = Math.round((day.steps||0) + stepsEst);
     await saveDay(state.currentDate);
-    closeExModal();
+    document.getElementById('exBackdrop').classList.remove('open');
     renderAll();
     toast('Activité ajoutée');
   };
 
-  document.getElementById('mealsList').onclick = async e=>{
-    if(!e.target.classList.contains('entry-del')) return;
-    const type = e.target.dataset.type;
-    const idx = parseInt(e.target.dataset.idx);
+  document.getElementById('mealsList').addEventListener('click', async e=>{
+    const btn = e.target.closest('.entry-del'); if(!btn) return;
     const day = await getDay(state.currentDate);
-    if(type==='meal') day.meals.splice(idx,1);
-    else if(type==='ex') day.exercises.splice(idx,1);
-    await saveDay(state.currentDate);
-    renderAll();
-  };
-  document.getElementById('exList').onclick = document.getElementById('mealsList').onclick;
+    day.meals.splice(parseInt(btn.dataset.idx),1);
+    await saveDay(state.currentDate); renderAll();
+  });
+  document.getElementById('exList').addEventListener('click', async e=>{
+    const btn = e.target.closest('.entry-del'); if(!btn) return;
+    const day = await getDay(state.currentDate);
+    const removed = day.exercises.splice(parseInt(btn.dataset.idx),1)[0];
+    if(removed && removed.steps) day.steps = Math.max(0, Math.round((day.steps||0) - removed.steps));
+    await saveDay(state.currentDate); renderAll();
+  });
 
+  // Settings — macros vase communicant
   document.getElementById('setKcal').oninput = e=>{
-    const val = parseFloat(e.target.value)||0;
-    scaleMacrosToKcal(lastKcalInputValue, val);
-    lastKcalInputValue = val;
-    renderSuggestSplit(val);
+    const newV = parseFloat(e.target.value)||0;
+    scaleMacrosToKcal(lastKcalInputValue, newV);
+    lastKcalInputValue = newV;
+    renderSuggestSplit(newV);
     renderMacroBalanceMsg();
   };
-  ['setProt','setCarb','setFat'].forEach(id=>{
-    document.getElementById(id).oninput = ()=> rebalanceMacros(id.replace('set','').toLowerCase());
-  });
+  document.getElementById('setProt').oninput = ()=> rebalanceMacros('prot');
+  document.getElementById('setCarb').oninput = ()=> rebalanceMacros('carb');
+  document.getElementById('setFat').oninput = ()=> rebalanceMacros('fat');
+
   document.getElementById('saveGoalsBtn').onclick = async ()=>{
-    const kcal = parseFloat(document.getElementById('setKcal').value)||2000;
-    const prot = parseFloat(document.getElementById('setProt').value)||100;
-    const carb = parseFloat(document.getElementById('setCarb').value)||250;
-    const fat = parseFloat(document.getElementById('setFat').value)||65;
-    
-    const newGoal = {from: state.currentDate, kcal, prot, carb, fat};
-    const existingIdx = state.goals.findIndex(g=>g.from===state.currentDate);
-    if(existingIdx>=0) state.goals[existingIdx] = newGoal;
-    else state.goals.push(newGoal);
-    
-    await _rawPut('goals', newGoal);
+    const g = {
+      from: todayStr(),
+      kcal: parseInt(document.getElementById('setKcal').value)||2000,
+      prot: parseInt(document.getElementById('setProt').value)||0,
+      carb: parseInt(document.getElementById('setCarb').value)||0,
+      fat: parseInt(document.getElementById('setFat').value)||0,
+    };
+    state.goals = state.goals.filter(x=>x.from!==g.from);
+    state.goals.push(g);
+    await idbPut('goals', g);
     toast('Objectif enregistré');
     renderAll();
   };
 
   ['setWeight','setAge','setHeight','setSex','setActivity'].forEach(id=>{
-    document.getElementById(id).onchange = async ()=>{
+    document.getElementById(id).addEventListener('change', async ()=>{
       state.meta.weightKg = parseFloat(document.getElementById('setWeight').value)||70;
-      state.meta.age = parseFloat(document.getElementById('setAge').value)||null;
+      state.meta.age = parseInt(document.getElementById('setAge').value)||null;
       state.meta.heightCm = parseFloat(document.getElementById('setHeight').value)||null;
       state.meta.sex = document.getElementById('setSex').value;
       state.meta.activityLevel = document.getElementById('setActivity').value;
       await idbPut('meta', {key:'settings', value:state.meta});
       renderBMRSuggestion();
-    };
+    });
   });
 
   document.getElementById('saveWaterBtn').onclick = async ()=>{
-    state.meta.waterGoalL = parseFloat(document.getElementById('setWater').value)||2.0;
+    state.meta.waterGoalL = parseFloat(document.getElementById('setWater').value)||2;
     await idbPut('meta', {key:'settings', value:state.meta});
-    toast('Objectif d\'eau enregistré');
+    toast('Objectif eau enregistré');
     renderAll();
   };
   document.getElementById('saveStepsBtn').onclick = async ()=>{
     state.meta.stepsGoal = parseInt(document.getElementById('setStepsGoal').value)||10000;
     await idbPut('meta', {key:'settings', value:state.meta});
-    toast('Objectif de pas enregistré');
+    toast('Objectif pas enregistré');
     renderAll();
   };
 
@@ -1506,75 +1590,61 @@ function bindEvents(){
     const days = await idbAll('days');
     const goals = await idbAll('goals');
     const customFoods = await idbAll('customFoods');
-    const data = {meta: state.meta, goals, days, customFoods, exportedAt: new Date().toISOString()};
-    const blob = new Blob([JSON.stringify(data, null, 2)], {type:'application/json'});
+    const payload = {meta:state.meta, goals, days, customFoods, exportedAt:new Date().toISOString()};
+    const blob = new Blob([JSON.stringify(payload,null,2)], {type:'application/json'});
     const url = URL.createObjectURL(blob);
-    const a = document.createElement('a'); a.href = url; a.download = `assiette_backup_${todayStr()}.json`;
-    a.click();
+    const a = document.createElement('a'); a.href=url; a.download='assiette-export-'+todayStr()+'.json'; a.click();
+    URL.revokeObjectURL(url);
     state.meta.lastExportAt = new Date().toISOString();
     await idbPut('meta', {key:'settings', value:state.meta});
     renderExportReminder();
-    toast('Export réalisé');
+    toast('Sauvegarde exportée');
   };
-
   document.getElementById('importBtn').onclick = ()=> document.getElementById('importFile').click();
-  document.getElementById('importFile').onchange = e=>{
-    const file = e.target.files[0];
-    if(!file) return;
-    const reader = new FileReader();
-    reader.onload = async event=>{
-      try{
-        const data = JSON.parse(event.target.result);
-        if(data.meta) state.meta = Object.assign(state.meta, data.meta);
-        await _rawPut('meta', {key:'settings', value: state.meta});
-        if(data.goals) for(const g of data.goals) await _rawPut('goals', g);
-        if(data.days) for(const d of data.days) await _rawPut('days', d);
-        if(data.customFoods) for(const f of data.customFoods) await _rawPut('customFoods', f);
-        state.goals = await idbAll('goals');
-        state.customFoods = await idbAll('customFoods');
-        state.dayCache = {};
-        toast('Import réussi');
-        renderAll();
-      }catch(err){
-        toast('Fichier d\'import invalide');
-      }
-    };
-    reader.readAsText(file);
-  };
 
+  // Synchronisation cloud (optionnelle)
   document.getElementById('cloudSendLinkBtn').onclick = async ()=>{
+    if(!supabaseClient){ toast('Synchronisation non configurée sur ce déploiement'); return; }
     const email = document.getElementById('cloudEmail').value.trim();
-    if(!email || !email.includes('@')){ toast('Indique un email valide'); return; }
-    if(!supabaseClient) return;
-    try{
-      const { error } = await supabaseClient.auth.signInWithOtp({ email, options: { emailRedirectTo: window.location.href } });
-      if(error) throw error;
-      toast('Lien de connexion envoyé par email !');
-    }catch(e){
-      toast('Erreur lors de l\'envoi du lien de connexion');
-    }
+    if(!email){ toast('Indique un email'); return; }
+    const { error } = await supabaseClient.auth.signInWithOtp({
+      email,
+      options: { emailRedirectTo: window.location.href.split('#')[0] }
+    });
+    if(error){ toast('Erreur : '+error.message); return; }
+    toast('Lien envoyé — vérifie tes emails');
   };
-
   document.getElementById('cloudLogoutBtn').onclick = async ()=>{
     if(!supabaseClient) return;
     await supabaseClient.auth.signOut();
-    cloudUser = null;
-    renderAccountUI();
-    renderFooterCredit();
-    toast('Déconnecté du cloud');
+    toast('Déconnecté');
+  };
+  document.getElementById('cloudInfoBtn').onclick = ()=> openInfoModal(
+    "Comment ça marche ?",
+    `<p>Connecte-toi avec ton email (un lien te suffit, pas de mot de passe à retenir) pour synchroniser automatiquement tes données entre tes appareils.</p>
+     <p>Tes données restent privées : elles sont stockées sur un serveur (Supabase) protégé par des règles d'accès qui garantissent que seul ton compte peut les lire ou les modifier — personne d'autre, même en connaissant l'adresse de cette page.</p>
+     <p>Sans connexion, l'appli continue de fonctionner normalement, mais uniquement sur cet appareil.</p>`
+  );
+  document.getElementById('importFile').onchange = async e=>{
+    const file = e.target.files[0]; if(!file) return;
+    const text = await file.text();
+    try{
+      const payload = JSON.parse(text);
+      if(payload.meta){ state.meta = Object.assign(state.meta, payload.meta); await idbPut('meta',{key:'settings',value:state.meta}); }
+      if(payload.goals) for(const g of payload.goals) await idbPut('goals', g);
+      if(payload.days) for(const d of payload.days) await idbPut('days', d);
+      if(payload.customFoods) for(const f of payload.customFoods) await idbPut('customFoods', f);
+      state.dayCache = {};
+      state.goals = await idbAll('goals');
+      state.customFoods = await idbAll('customFoods');
+      toast('Import réussi');
+      renderAll();
+    }catch(err){ toast('Fichier invalide'); }
   };
 
-  document.querySelectorAll('.info-btn').forEach(btn=>{
-    btn.onclick = ()=>{
-      const id = btn.id;
-      if(id==='activityInfoBtn'){
-        openInfoModal("Niveaux d'activité", "<b>Sédentaire</b> : peu ou pas d'exercice.<br><b>Légèrement actif</b> : exercice léger 1-3 j/semaine.<br><b>Modérément actif</b> : exercice modéré 3-5 j/semaine.<br><b>Actif</b> : exercice intense 6-7 j/semaine.<br><b>Très actif</b> : exercice très intense quotidien ou travail physique.");
-      } else if(id==='cloudInfoBtn'){
-        openInfoModal("Synchronisation cloud", "Permet de retrouver tes données sur l'ensemble de tes appareils de manière sécurisée en te connectant simplement par email.");
-      }
-    };
+  window.addEventListener('scroll', ()=>{
+    document.getElementById('topHeader').classList.toggle('scrolled', window.scrollY>4);
   });
-  document.getElementById('closeInfoModal').onclick = ()=> closeInfoModal();
 }
 
 function changeDay(delta){
@@ -1588,46 +1658,45 @@ function switchView(view){
   document.getElementById('viewToday').classList.toggle('hidden', view!=='today');
   document.getElementById('viewCalendar').classList.toggle('hidden', view!=='cal');
   document.getElementById('viewSettings').classList.toggle('hidden', view!=='settings');
-
   document.getElementById('navToday').classList.toggle('active', view==='today');
   document.getElementById('navCal').classList.toggle('active', view==='cal');
   document.getElementById('navSettings').classList.toggle('active', view==='settings');
-  window.scrollTo(0,0);
+}
+
+/* ============================================================
+   MODALE D'INFO GÉNÉRIQUE
+   ============================================================ */
+function openInfoModal(title, bodyHtml){
+  document.getElementById('infoTitle').textContent = title;
+  document.getElementById('infoBody').innerHTML = bodyHtml;
+  document.getElementById('infoBackdrop').classList.add('open');
+}
+function closeInfoModal(){
+  document.getElementById('infoBackdrop').classList.remove('open');
 }
 
 function openFoodModal(){
   document.getElementById('foodBackdrop').classList.add('open');
-  switchFoodTab('search');
+  setFoodTab('search');
+  document.getElementById('foodSelected').classList.add('hidden');
+  document.getElementById('foodSearchInput').value='';
+  document.getElementById('foodResults').classList.add('hidden');
 }
 function closeFoodModal(){
-  if(html5Qr){ html5Qr.stop().catch(()=>{}); html5Qr = null; }
   document.getElementById('foodBackdrop').classList.remove('open');
-  document.getElementById('qr-region').innerHTML = '';
+  if(html5Qr){ try{html5Qr.stop(); html5Qr.clear();}catch(e){} }
 }
-function switchFoodTab(mode){
-  if(html5Qr && mode!=='scan'){ html5Qr.stop().catch(()=>{}); html5Qr = null; document.getElementById('qr-region').innerHTML=''; }
+function setFoodTab(mode){
   document.getElementById('tabSearch').classList.toggle('active', mode==='search');
   document.getElementById('tabScan').classList.toggle('active', mode==='scan');
   document.getElementById('tabCustomFood').classList.toggle('active', mode==='custom');
-
   document.getElementById('foodSearchPane').classList.toggle('hidden', mode!=='search');
   document.getElementById('foodScanPane').classList.toggle('hidden', mode!=='scan');
   document.getElementById('foodCustomPane').classList.toggle('hidden', mode!=='custom');
   document.getElementById('foodSelected').classList.add('hidden');
 }
 
-function openExModal(){ document.getElementById('exBackdrop').classList.add('open'); updateExPreview(); }
-function closeExModal(){ document.getElementById('exBackdrop').classList.remove('open'); }
-
-function openInfoModal(title, html){
-  document.getElementById('infoTitle').textContent = title;
-  document.getElementById('infoBody').innerHTML = html;
-  document.getElementById('infoBackdrop').classList.add('open');
-}
-function closeInfoModal(){ document.getElementById('infoBackdrop').classList.remove('open'); }
-
-window.onload = init;
+init();
 </script>
 </body>
 </html>
-```[cite: 1]
