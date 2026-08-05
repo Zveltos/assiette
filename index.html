@@ -409,7 +409,9 @@ footer.credit{text-align:center;font-size:11px;color:var(--ink-soft);opacity:.7;
     <div id="foodScanPane" class="hidden">
       <button class="scan-btn" id="startScanBtn">📷 Démarrer la caméra</button>
       <div id="qr-region"></div>
-      <p class="desc" style="font-size:12px;color:var(--ink-soft);margin-top:8px;">Nécessite une connexion internet pour interroger Open Food Facts. Fonctionne sur les produits emballés avec code-barres.</p>
+      <button class="scan-btn" id="captureScanBtn" style="display:none;margin-top:8px;">📸 Analyser l'image</button>
+      <div id="qr-region-filescan" style="display:none;"></div>
+      <p class="desc" style="font-size:12px;color:var(--ink-soft);margin-top:8px;">Nécessite une connexion internet pour interroger Open Food Facts. Fonctionne sur les produits emballés avec code-barres. Si la détection automatique ne se déclenche pas, cadre bien le code-barres puis appuie sur "Analyser l'image".</p>
     </div>
 
     <div id="foodCustomPane" class="hidden">
@@ -1209,22 +1211,23 @@ function updateFoodComputed(){
    SCAN CODE-BARRES (Open Food Facts)
    ============================================================ */
 let html5Qr = null;
+let scanActive = false;
+const BARCODE_FORMATS = [
+  Html5QrcodeSupportedFormats.EAN_13,
+  Html5QrcodeSupportedFormats.EAN_8,
+  Html5QrcodeSupportedFormats.UPC_A,
+  Html5QrcodeSupportedFormats.UPC_E,
+  Html5QrcodeSupportedFormats.CODE_128,
+];
+
 async function startScan(){
   document.getElementById('qr-region').innerHTML='';
   try{
     if(typeof Html5Qrcode==='undefined') throw new Error('Html5Qrcode indisponible');
     html5Qr = new Html5Qrcode("qr-region", {
-      formatsToSupport: [
-        Html5QrcodeSupportedFormats.EAN_13,
-        Html5QrcodeSupportedFormats.EAN_8,
-        Html5QrcodeSupportedFormats.UPC_A,
-        Html5QrcodeSupportedFormats.UPC_E,
-        Html5QrcodeSupportedFormats.CODE_128,
-      ],
+      formatsToSupport: BARCODE_FORMATS,
       verbose:false,
-      experimentalFeatures:{
-        useBarCodeDetectorIfSupported:true
-      }
+      experimentalFeatures:{ useBarCodeDetectorIfSupported:true }
     });
     await html5Qr.start(
       {facingMode:"environment"},
@@ -1238,16 +1241,48 @@ async function startScan(){
         }
       },
       async(decodedText)=>{
-        await html5Qr.stop(); html5Qr.clear();
+        await stopScan();
         toast('Code détecté : '+decodedText);
         await lookupBarcode(decodedText);
       },
       ()=>{}
     );
+    scanActive = true;
+    document.getElementById('captureScanBtn').style.display = 'block';
   }catch(e){
     console.error('Scan error', e);
     toast("Scanner erreur : "+(e.message||e));
   }
+}
+
+async function stopScan(){
+  if(html5Qr && scanActive){
+    try{ await html5Qr.stop(); html5Qr.clear(); }catch(e){}
+  }
+  scanActive = false;
+  document.getElementById('captureScanBtn').style.display = 'none';
+}
+
+async function captureAndAnalyze(){
+  const videoEl = document.querySelector('#qr-region video');
+  if(!videoEl || !videoEl.videoWidth){ toast("Caméra pas encore prête, réessaie dans une seconde"); return; }
+  const canvas = document.createElement('canvas');
+  canvas.width = videoEl.videoWidth;
+  canvas.height = videoEl.videoHeight;
+  canvas.getContext('2d').drawImage(videoEl, 0, 0, canvas.width, canvas.height);
+  canvas.toBlob(async(blob)=>{
+    if(!blob){ toast("Capture impossible"); return; }
+    const file = new File([blob], "capture.jpg", {type:"image/jpeg"});
+    try{
+      const fileScanner = new Html5Qrcode("qr-region-filescan", { formatsToSupport: BARCODE_FORMATS, verbose:false });
+      const decodedText = await fileScanner.scanFile(file, false);
+      await stopScan();
+      toast('Code détecté : '+decodedText);
+      await lookupBarcode(decodedText);
+    }catch(e){
+      toast("Aucun code-barres reconnu sur cette image, recadre et réessaie");
+    }
+  }, 'image/jpeg', 0.95);
 }
 async function lookupBarcode(code){
   try{
@@ -1471,7 +1506,7 @@ function bindEvents(){
   document.getElementById('openFoodModal').onclick = ()=> openFoodModal();
   document.getElementById('closeFoodModal').onclick = ()=> closeFoodModal();
   document.getElementById('tabSearch').onclick = ()=> setFoodTab('search');
-  document.getElementById('tabScan').onclick = ()=> setFoodTab('scan');
+  document.getElementById('captureScanBtn').onclick = ()=> captureAndAnalyze();
   document.getElementById('tabCustomFood').onclick = ()=> setFoodTab('custom');
   document.getElementById('foodSearchInput').oninput = e=>{
     const results = searchFoods(e.target.value);
@@ -1711,7 +1746,7 @@ function openFoodModal(){
 }
 function closeFoodModal(){
   document.getElementById('foodBackdrop').classList.remove('open');
-  if(html5Qr){ try{html5Qr.stop(); html5Qr.clear();}catch(e){} }
+  stopScan();
 }
 function setFoodTab(mode){
   document.getElementById('tabSearch').classList.toggle('active', mode==='search');
