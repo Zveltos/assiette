@@ -415,6 +415,13 @@ footer.credit{text-align:center;font-size:11px;color:var(--ink-soft);opacity:.7;
       </div>
       <button class="scan-btn" id="captureScanBtn" style="display:none;margin-top:8px;">📸 Analyser l'image</button>
       <div id="qr-region-filescan" style="display:none;"></div>
+      <div class="field" style="margin-top:10px;">
+        <label>Ou saisir le numéro manuellement</label>
+        <div class="row2">
+          <input type="text" id="manualBarcodeInput" inputmode="numeric" placeholder="ex : 3017620422003" style="flex:1;">
+          <button class="btn secondary" id="manualBarcodeBtn" style="flex:0 0 auto;width:auto;padding:12px 16px;">Valider</button>
+        </div>
+      </div>
       <p class="desc" style="font-size:12px;color:var(--ink-soft);margin-top:8px;">Nécessite une connexion internet pour interroger Open Food Facts. Astuce : ne colle pas le téléphone contre le code-barres (le téléphone ne peut pas faire le point d'aussi près) — recule d'environ 15 cm et utilise le zoom si besoin. Sur une boîte de conserve, oriente-la pour que le code-barres soit bien à plat face à la caméra et évite les reflets directs.</p>
     </div>
 
@@ -437,8 +444,9 @@ footer.credit{text-align:center;font-size:11px;color:var(--ink-soft);opacity:.7;
 
     <div id="foodSelected" class="hidden">
       <div class="preview-box" id="foodPreview" style="display:block;"></div>
+      <div class="unit-toggle" id="foodTypeToggle" style="margin-top:10px;"></div>
       <div class="field" style="margin-top:12px;">
-        <label>Quantité</label>
+        <label>Quantité <button type="button" class="info-btn" id="spoonInfoBtn">i</button></label>
         <div class="row2">
           <input type="number" id="foodQty" value="100" inputmode="decimal" style="flex:1;">
           <div class="unit-toggle" id="foodUnitToggle" style="flex:1;"></div>
@@ -1169,12 +1177,13 @@ function searchFoods(q){
   return allFoods().filter(f=>f.n.toLowerCase().includes(q)).slice(0,25);
 }
 
-function selectFood(food){
+function selectFood(food, fromScan=false){
   state.pendingFood = {
     name: food.n,
     k:food.k,p:food.p,c:food.c,f:food.f,
     unitG: food.unitG || null,
     isLiquid: !!food.isLiquid,
+    fromScan: !!fromScan,
   };
   document.getElementById('foodResults').classList.add('hidden');
   document.getElementById('foodSearchPane').classList.add('hidden');
@@ -1184,20 +1193,55 @@ function selectFood(food){
 
   document.getElementById('foodPreview').innerHTML = `<b>${food.n}</b> — pour 100${food.isLiquid?'ml':'g'} : ${food.k} kcal · P ${food.p}g · G ${food.c}g · L ${food.f}g`;
 
+  buildFoodTypeToggle();
+  buildFoodUnitToggle();
+  document.getElementById('foodQty').value = state.pendingFood.isLiquid ? 10 : 100;
+  updateFoodComputed();
+}
+
+// Bascule Solide/Liquide — utile quand la détection automatique (scan/DB)
+// se trompe sur la nature d'un produit ; ne convertit rien, corrige juste
+// l'unité de référence (les valeurs nutritionnelles restent "pour 100g/100ml").
+function buildFoodTypeToggle(){
+  const wrap = document.getElementById('foodTypeToggle');
+  wrap.innerHTML = '';
+  const opts = [ {val:false, label:'Solide (g)'}, {val:true, label:'Liquide (cl)'} ];
+  opts.forEach(o=>{
+    const b = document.createElement('button');
+    b.textContent = o.label;
+    if(state.pendingFood.isLiquid === o.val) b.classList.add('active');
+    b.onclick = ()=>{
+      if(state.pendingFood.isLiquid === o.val) return;
+      state.pendingFood.isLiquid = o.val;
+      buildFoodTypeToggle();
+      buildFoodUnitToggle();
+      document.getElementById('foodQty').value = o.val ? 10 : 100;
+      updateFoodComputed();
+    };
+    wrap.appendChild(b);
+  });
+}
+
+function buildFoodUnitToggle(){
+  const f = state.pendingFood;
   const toggle = document.getElementById('foodUnitToggle');
   toggle.innerHTML = '';
-  const units = [ {key:'g', label: food.isLiquid?'ml':'g'} ];
-  if(food.unitG) units.push({key:'unit', label:'unité(s)'});
+  const units = [ f.isLiquid ? {key:'vol', label:'cl'} : {key:'g', label:'g'} ];
+  if(f.unitG) units.push({key:'unit', label:'unité(s)'});
   units.forEach((u,i)=>{
     const b = document.createElement('button');
     b.textContent = u.label; b.dataset.unit = u.key;
     if(i===0) b.classList.add('active');
-    b.onclick = ()=>{ [...toggle.children].forEach(c=>c.classList.remove('active')); b.classList.add('active'); state.pendingFood.unit=u.key; document.getElementById('foodQty').value = u.key==='unit'?1:100; updateFoodComputed(); };
+    b.onclick = ()=>{
+      [...toggle.children].forEach(c=>c.classList.remove('active'));
+      b.classList.add('active');
+      f.unit = u.key;
+      document.getElementById('foodQty').value = u.key==='unit' ? 1 : (u.key==='vol' ? 10 : 100);
+      updateFoodComputed();
+    };
     toggle.appendChild(b);
   });
-  state.pendingFood.unit='g';
-  document.getElementById('foodQty').value = 100;
-  updateFoodComputed();
+  f.unit = units[0].key;
 }
 
 function updateFoodComputed(){
@@ -1205,10 +1249,11 @@ function updateFoodComputed(){
   const qty = parseFloat(document.getElementById('foodQty').value)||0;
   let grams = qty;
   if(f.unit==='unit') grams = qty * (f.unitG||100);
+  else if(f.unit==='vol') grams = qty * 10; // 1 cl = 10 ml ; base nutritionnelle exprimée pour 100ml
   const ratio = grams/100;
   const k = f.k*ratio, p=f.p*ratio, c=f.c*ratio, ff=f.f*ratio;
   document.getElementById('foodComputed').innerHTML = `<b>${Math.round(k)} kcal</b> — P ${p.toFixed(1)}g · G ${c.toFixed(1)}g · L ${ff.toFixed(1)}g`;
-  f._computed = {k,p,c,f:ff, grams, qty, qtyLabel: f.unit==='unit'? `${qty} unité(s)` : `${qty} ${f.isLiquid?'ml':'g'}`};
+  f._computed = {k,p,c,f:ff, grams, qty, qtyLabel: f.unit==='unit'? `${qty} unité(s)` : f.unit==='vol' ? `${qty} cl` : `${qty} g`};
 }
 
 /* ============================================================
@@ -1216,6 +1261,7 @@ function updateFoodComputed(){
    ============================================================ */
 let html5Qr = null;
 let scanActive = false;
+let scanPaused = false;
 const BARCODE_FORMATS = [
   Html5QrcodeSupportedFormats.EAN_13,
   Html5QrcodeSupportedFormats.EAN_8,
@@ -1245,13 +1291,16 @@ async function startScan(){
         }
       },
       async(decodedText)=>{
-        await stopScan();
+        if(scanPaused) return;
+        scanPaused = true;
+        try{ html5Qr.pause(true); }catch(e){}
         toast('Code détecté : '+decodedText);
-        await lookupBarcode(decodedText);
+        await lookupBarcode(decodedText, true);
       },
       ()=>{}
     );
     scanActive = true;
+    scanPaused = false;
     document.getElementById('captureScanBtn').style.display = 'block';
     await setupScanControls();
   }catch(e){
@@ -1260,11 +1309,21 @@ async function startScan(){
   }
 }
 
+// Reprend un scan mis en pause (après une détection ou une saisie manuelle),
+// pour ne pas avoir à ré-ouvrir la caméra entre deux produits scannés.
+function resumeScanIfPaused(){
+  if(html5Qr && scanActive && scanPaused){
+    try{ html5Qr.resume(); }catch(e){}
+    scanPaused = false;
+  }
+}
+
 async function stopScan(){
   if(html5Qr && scanActive){
     try{ await html5Qr.stop(); html5Qr.clear(); }catch(e){}
   }
   scanActive = false;
+  scanPaused = false;
   document.getElementById('captureScanBtn').style.display = 'none';
   document.getElementById('scanControls').classList.add('hidden');
   document.getElementById('torchToggleBtn').style.display = 'none';
@@ -1282,10 +1341,15 @@ async function setupScanControls(){
     const zoomFeature = caps.zoomFeature && caps.zoomFeature();
     if(zoomFeature && zoomFeature.isSupported && zoomFeature.isSupported()){
       anyFeature = true;
-      zoomSlider.min = zoomFeature.min();
-      zoomSlider.max = zoomFeature.max();
+      const min = zoomFeature.min();
+      const max = zoomFeature.max();
+      // La plage native va souvent bien plus loin que nécessaire pour un
+      // code-barres (zoom numérique x8, x10...) : on limite aux premiers 40%.
+      const cappedMax = min + (max-min)*0.4;
+      zoomSlider.min = min;
+      zoomSlider.max = cappedMax;
       zoomSlider.step = zoomFeature.step() || 0.1;
-      zoomSlider.value = zoomFeature.value() || zoomFeature.min();
+      zoomSlider.value = Math.min(zoomFeature.value()||min, cappedMax);
       zoomSlider.style.display = 'block';
       zoomSlider.oninput = ()=> zoomFeature.apply(parseFloat(zoomSlider.value));
     }
@@ -1319,29 +1383,40 @@ async function captureAndAnalyze(){
     try{
       const fileScanner = new Html5Qrcode("qr-region-filescan", { formatsToSupport: BARCODE_FORMATS, verbose:false });
       const decodedText = await fileScanner.scanFile(file, false);
-      await stopScan();
+      if(html5Qr && scanActive){ scanPaused = true; try{ html5Qr.pause(true); }catch(e){} }
       toast('Code détecté : '+decodedText);
-      await lookupBarcode(decodedText);
+      await lookupBarcode(decodedText, true);
     }catch(e){
       toast("Aucun code-barres reconnu sur cette image, recadre et réessaie");
     }
   }, 'image/jpeg', 0.95);
 }
-async function lookupBarcode(code){
+
+async function lookupBarcode(code, fromScan=false){
   try{
     const res = await fetch(`https://world.openfoodfacts.org/api/v0/product/${code}.json`);
     const data = await res.json();
-    if(data.status!==1){ toast('Produit introuvable sur Open Food Facts'); return; }
+    if(data.status!==1){
+      toast('Produit introuvable sur Open Food Facts');
+      resumeScanIfPaused();
+      return;
+    }
     const n = data.product.nutriments||{};
+    // Heuristique : le champ "quantity" d'Open Food Facts (ex. "33 cl", "500 g")
+    // indique si le produit se mesure en volume plutôt qu'en poids.
+    // Reste modifiable manuellement via le bouton Solide/Liquide si besoin.
+    const qtyStr = (data.product.quantity||'').toLowerCase();
+    const looksLiquid = /(^|[\s\d])(cl|ml|l)\b/.test(qtyStr) && !/\bkg\b/.test(qtyStr);
     const food = {
       n: data.product.product_name || 'Produit scanné',
       k: n['energy-kcal_100g'] ?? Math.round((n['energy_100g']||0)/4.184) ?? 0,
       p: n.proteins_100g||0, c: n.carbohydrates_100g||0, f: n.fat_100g||0,
-      unitG:null, isLiquid:false,
+      unitG:null, isLiquid:looksLiquid,
     };
-    selectFood(food);
+    selectFood(food, fromScan);
   }catch(e){
     toast("Connexion internet requise pour le scan");
+    resumeScanIfPaused();
   }
 }
 
@@ -1561,12 +1636,29 @@ function bindEvents(){
     [...box.children].forEach((el,i)=> el.onclick = ()=> selectFood(results[i]));
   };
   document.getElementById('startScanBtn').onclick = startScan;
+  document.getElementById('manualBarcodeBtn').onclick = async ()=>{
+    const code = document.getElementById('manualBarcodeInput').value.trim();
+    if(!code){ toast('Entre un numéro de code-barres'); return; }
+    await lookupBarcode(code, true);
+  };
+  document.getElementById('manualBarcodeInput').onkeydown = e=>{
+    if(e.key==='Enter'){ e.preventDefault(); document.getElementById('manualBarcodeBtn').click(); }
+  };
+  document.getElementById('spoonInfoBtn').onclick = ()=> openInfoModal(
+    "Repères pratiques",
+    `<p>Pour estimer une quantité sans balance :</p>
+     <p>• <b>1 cuillère à soupe</b> ≈ 15 g (eau) / 1,5 cl<br>
+     • <b>1 cuillère à café</b> ≈ 5 g (eau) / 0,5 cl</p>
+     <p>Ces repères sont donnés pour l'eau ; pour des liquides plus denses ou visqueux (huile, miel, sauce épaisse…) le poids réel par cuillère peut varier légèrement.</p>`
+  );
   document.getElementById('saveCustomFoodBtn').onclick = saveCustomFood;
   document.getElementById('foodQty').oninput = updateFoodComputed;
   document.getElementById('cancelFoodSelectBtn').onclick = ()=>{
+    const wasFromScan = state.pendingFood && state.pendingFood.fromScan;
     state.pendingFood=null;
     document.getElementById('foodSelected').classList.add('hidden');
-    setFoodTab('search');
+    if(wasFromScan){ setFoodTab('scan'); resumeScanIfPaused(); }
+    else setFoodTab('search');
   };
   document.getElementById('confirmFoodBtn').onclick = async ()=>{
     const f = state.pendingFood;
@@ -1574,9 +1666,18 @@ function bindEvents(){
     const day = await getDay(state.currentDate);
     day.meals.push({name:f.name, k:f._computed.k, p:f._computed.p, c:f._computed.c, f:f._computed.f, qtyLabel:f._computed.qtyLabel});
     await saveDay(state.currentDate);
-    closeFoodModal();
-    renderAll();
     toast('Aliment ajouté');
+    if(f.fromScan){
+      // On reste dans le flux scan : caméra reprise, prêt pour le produit suivant.
+      state.pendingFood = null;
+      document.getElementById('foodSelected').classList.add('hidden');
+      setFoodTab('scan');
+      resumeScanIfPaused();
+      renderAll();
+    }else{
+      closeFoodModal();
+      renderAll();
+    }
   };
 
   // Exercise modal
