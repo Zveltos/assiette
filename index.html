@@ -1195,7 +1195,7 @@ function selectFood(food, fromScan=false){
 
   buildFoodTypeToggle();
   buildFoodUnitToggle();
-  document.getElementById('foodQty').value = state.pendingFood.isLiquid ? 10 : 100;
+  document.getElementById('foodQty').value = 100;
   updateFoodComputed();
 }
 
@@ -1205,7 +1205,7 @@ function selectFood(food, fromScan=false){
 function buildFoodTypeToggle(){
   const wrap = document.getElementById('foodTypeToggle');
   wrap.innerHTML = '';
-  const opts = [ {val:false, label:'Solide (g)'}, {val:true, label:'Liquide (cl)'} ];
+  const opts = [ {val:false, label:'Solide (g)'}, {val:true, label:'Liquide (ml)'} ];
   opts.forEach(o=>{
     const b = document.createElement('button');
     b.textContent = o.label;
@@ -1215,7 +1215,7 @@ function buildFoodTypeToggle(){
       state.pendingFood.isLiquid = o.val;
       buildFoodTypeToggle();
       buildFoodUnitToggle();
-      document.getElementById('foodQty').value = o.val ? 10 : 100;
+      document.getElementById('foodQty').value = 100;
       updateFoodComputed();
     };
     wrap.appendChild(b);
@@ -1226,7 +1226,7 @@ function buildFoodUnitToggle(){
   const f = state.pendingFood;
   const toggle = document.getElementById('foodUnitToggle');
   toggle.innerHTML = '';
-  const units = [ f.isLiquid ? {key:'vol', label:'cl'} : {key:'g', label:'g'} ];
+  const units = [ f.isLiquid ? {key:'vol', label:'ml'} : {key:'g', label:'g'} ];
   if(f.unitG) units.push({key:'unit', label:'unité(s)'});
   units.forEach((u,i)=>{
     const b = document.createElement('button');
@@ -1236,7 +1236,7 @@ function buildFoodUnitToggle(){
       [...toggle.children].forEach(c=>c.classList.remove('active'));
       b.classList.add('active');
       f.unit = u.key;
-      document.getElementById('foodQty').value = u.key==='unit' ? 1 : (u.key==='vol' ? 10 : 100);
+      document.getElementById('foodQty').value = u.key==='unit' ? 1 : 100;
       updateFoodComputed();
     };
     toggle.appendChild(b);
@@ -1249,11 +1249,11 @@ function updateFoodComputed(){
   const qty = parseFloat(document.getElementById('foodQty').value)||0;
   let grams = qty;
   if(f.unit==='unit') grams = qty * (f.unitG||100);
-  else if(f.unit==='vol') grams = qty * 10; // 1 cl = 10 ml ; base nutritionnelle exprimée pour 100ml
+  // f.unit==='vol' : qty est déjà en ml, même base que les valeurs nutritionnelles (/100ml)
   const ratio = grams/100;
   const k = f.k*ratio, p=f.p*ratio, c=f.c*ratio, ff=f.f*ratio;
   document.getElementById('foodComputed').innerHTML = `<b>${Math.round(k)} kcal</b> — P ${p.toFixed(1)}g · G ${c.toFixed(1)}g · L ${ff.toFixed(1)}g`;
-  f._computed = {k,p,c,f:ff, grams, qty, qtyLabel: f.unit==='unit'? `${qty} unité(s)` : f.unit==='vol' ? `${qty} cl` : `${qty} g`};
+  f._computed = {k,p,c,f:ff, grams, qty, qtyLabel: f.unit==='unit'? `${qty} unité(s)` : f.unit==='vol' ? `${qty} ml` : `${qty} g`};
 }
 
 /* ============================================================
@@ -1647,8 +1647,8 @@ function bindEvents(){
   document.getElementById('spoonInfoBtn').onclick = ()=> openInfoModal(
     "Repères pratiques",
     `<p>Pour estimer une quantité sans balance :</p>
-     <p>• <b>1 cuillère à soupe</b> ≈ 15 g (eau) / 1,5 cl<br>
-     • <b>1 cuillère à café</b> ≈ 5 g (eau) / 0,5 cl</p>
+     <p>• <b>1 cuillère à soupe</b> ≈ 15 g (eau) / 15 ml<br>
+     • <b>1 cuillère à café</b> ≈ 5 g (eau) / 5 ml</p>
      <p>Ces repères sont donnés pour l'eau ; pour des liquides plus denses ou visqueux (huile, miel, sauce épaisse…) le poids réel par cuillère peut varier légèrement.</p>`
   );
   document.getElementById('saveCustomFoodBtn').onclick = saveCustomFood;
