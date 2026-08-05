@@ -1221,7 +1221,10 @@ async function startScan(){
         Html5QrcodeSupportedFormats.UPC_E,
         Html5QrcodeSupportedFormats.CODE_128,
       ],
-      verbose:false
+      verbose:false,
+      experimentalFeatures:{
+        useBarCodeDetectorIfSupported:true
+      }
     });
     await html5Qr.start(
       {facingMode:"environment"},
@@ -1242,7 +1245,8 @@ async function startScan(){
       ()=>{}
     );
   }catch(e){
-    toast("Scanner indisponible dans ce navigateur/mode d'ouverture");
+    console.error('Scan error', e);
+    toast("Scanner erreur : "+(e.message||e));
   }
 }
 async function lookupBarcode(code){
