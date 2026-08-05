@@ -407,11 +407,14 @@ footer.credit{text-align:center;font-size:11px;color:var(--ink-soft);opacity:.7;
     </div>
 
     <div id="foodScanPane" class="hidden">
-      <button class="scan-btn" id="startScanBtn">📷 Démarrer la caméra</button>
       <div id="qr-region"></div>
+      <div id="scanControls" class="hidden" style="margin-top:10px;display:flex;gap:10px;align-items:center;">
+        <button class="chip gold" id="torchToggleBtn" style="display:none;">💡 Flash</button>
+        <input type="range" id="zoomSlider" style="display:none;flex:1;">
+      </div>
       <button class="scan-btn" id="captureScanBtn" style="display:none;margin-top:8px;">📸 Analyser l'image</button>
       <div id="qr-region-filescan" style="display:none;"></div>
-      <p class="desc" style="font-size:12px;color:var(--ink-soft);margin-top:8px;">Nécessite une connexion internet pour interroger Open Food Facts. Fonctionne sur les produits emballés avec code-barres. Si la détection automatique ne se déclenche pas, cadre bien le code-barres puis appuie sur "Analyser l'image".</p>
+      <p class="desc" style="font-size:12px;color:var(--ink-soft);margin-top:8px;">Nécessite une connexion internet pour interroger Open Food Facts. Astuce : ne colle pas le téléphone contre le code-barres (le téléphone ne peut pas faire le point d'aussi près) — recule d'environ 15 cm et utilise le zoom si besoin. Sur une boîte de conserve, oriente-la pour que le code-barres soit bien à plat face à la caméra et évite les reflets directs.</p>
     </div>
 
     <div id="foodCustomPane" class="hidden">
@@ -1249,6 +1252,7 @@ async function startScan(){
     );
     scanActive = true;
     document.getElementById('captureScanBtn').style.display = 'block';
+    await setupScanControls();
   }catch(e){
     console.error('Scan error', e);
     toast("Scanner erreur : "+(e.message||e));
@@ -1261,6 +1265,44 @@ async function stopScan(){
   }
   scanActive = false;
   document.getElementById('captureScanBtn').style.display = 'none';
+  document.getElementById('scanControls').classList.add('hidden');
+  document.getElementById('torchToggleBtn').style.display = 'none';
+  document.getElementById('zoomSlider').style.display = 'none';
+}
+
+async function setupScanControls(){
+  const controlsWrap = document.getElementById('scanControls');
+  const torchBtn = document.getElementById('torchToggleBtn');
+  const zoomSlider = document.getElementById('zoomSlider');
+  try{
+    const caps = html5Qr.getRunningTrackCameraCapabilities();
+    let anyFeature = false;
+
+    const zoomFeature = caps.zoomFeature && caps.zoomFeature();
+    if(zoomFeature && zoomFeature.isSupported && zoomFeature.isSupported()){
+      anyFeature = true;
+      zoomSlider.min = zoomFeature.min();
+      zoomSlider.max = zoomFeature.max();
+      zoomSlider.step = zoomFeature.step() || 0.1;
+      zoomSlider.value = zoomFeature.value() || zoomFeature.min();
+      zoomSlider.style.display = 'block';
+      zoomSlider.oninput = ()=> zoomFeature.apply(parseFloat(zoomSlider.value));
+    }
+
+    const torchFeature = caps.torchFeature && caps.torchFeature();
+    if(torchFeature && torchFeature.isSupported && torchFeature.isSupported()){
+      anyFeature = true;
+      let torchOn = false;
+      torchBtn.style.display = 'inline-flex';
+      torchBtn.onclick = ()=>{
+        torchOn = !torchOn;
+        torchFeature.apply(torchOn);
+        torchBtn.style.background = torchOn ? 'var(--gold)' : '';
+      };
+    }
+
+    if(anyFeature) controlsWrap.classList.remove('hidden');
+  }catch(e){ /* capacités non disponibles sur cet appareil, on ignore */ }
 }
 
 async function captureAndAnalyze(){
