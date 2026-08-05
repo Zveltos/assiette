@@ -274,7 +274,7 @@ footer.credit{text-align:center;font-size:11px;color:var(--ink-soft);opacity:.7;
       </div>
     </section>
 
-    <footer class="credit">Données stockées uniquement sur cet appareil (IndexedDB). Base d'aliments élargie (versions crues et cuites) type CIQUAL/EFSA · scan code-barres via Open Food Facts (connexion requise) · dépense sportive estimée par équivalent MET, affinée par ton métabolisme de base si ton profil est complété.</footer>
+    <footer class="credit">Données stockées localement (IndexedDB), synchronisées automatiquement dans le cloud si tu es connecté · Base d'aliments élargie (versions crues et cuites) type CIQUAL/EFSA · scan code-barres via Open Food Facts (connexion requise) · dépense sportive estimée par équivalent MET, affinée par ton métabolisme de base si ton profil est complété.</footer>
   </div>
 
   <div id="viewCalendar" class="hidden">
@@ -372,7 +372,7 @@ footer.credit{text-align:center;font-size:11px;color:var(--ink-soft);opacity:.7;
 
       <div class="settings-block">
         <h3>Mes données</h3>
-        <p class="desc">Sans connexion (ci-dessus), tout reste uniquement sur cet appareil. Exporte régulièrement pour ne rien perdre si tu changes de téléphone.</p>
+        <p class="desc">Si tu es connecté (ci-dessus), tes données sont sauvegardées automatiquement dans le cloud à chaque modification. Sans connexion, tout reste uniquement sur cet appareil — pense alors à exporter régulièrement.</p>
         <div id="exportReminder" class="tag-goalhist" style="margin-bottom:12px;"></div>
         <div class="io-row">
           <button class="btn secondary" id="exportBtn">Exporter (.json)</button>
@@ -916,6 +916,7 @@ async function init(){
 
 async function checkExportReminderToast(){
   try{
+    if(cloudUser) return; // sauvegardé automatiquement dans le cloud
     const days = await idbAll('days');
     const hasData = days.some(d=> d.meals.length || d.exercises.length || d.water);
     if(!hasData) return; // rien à perdre, pas la peine d'alerter
@@ -1037,6 +1038,11 @@ function daysSince(iso){
 function renderExportReminder(){
   const el = document.getElementById('exportReminder');
   if(!el) return;
+  if(cloudUser){
+    el.textContent = "Synchronisé automatiquement avec ton compte — un export .json reste une bonne pratique ponctuelle, mais n'est plus indispensable.";
+    el.className = 'tag-goalhist current';
+    return;
+  }
   const last = state.meta.lastExportAt;
   if(!last){
     el.textContent = "Aucune sauvegarde exportée pour l'instant — pense à faire un premier export.";
@@ -1207,10 +1213,27 @@ async function startScan(){
   document.getElementById('qr-region').innerHTML='';
   try{
     if(typeof Html5Qrcode==='undefined') throw new Error('Html5Qrcode indisponible');
-    html5Qr = new Html5Qrcode("qr-region");
+    html5Qr = new Html5Qrcode("qr-region", {
+      formatsToSupport: [
+        Html5QrcodeSupportedFormats.EAN_13,
+        Html5QrcodeSupportedFormats.EAN_8,
+        Html5QrcodeSupportedFormats.UPC_A,
+        Html5QrcodeSupportedFormats.UPC_E,
+        Html5QrcodeSupportedFormats.CODE_128,
+      ],
+      verbose:false
+    });
     await html5Qr.start(
       {facingMode:"environment"},
-      {fps:10, qrbox:{width:250,height:120}},
+      {
+        fps:10,
+        qrbox:{width:280,height:140},
+        videoConstraints:{
+          facingMode:"environment",
+          width:{min:640, ideal:1920, max:1920},
+          height:{min:480, ideal:1080, max:1080}
+        }
+      },
       async(decodedText)=>{
         await html5Qr.stop(); html5Qr.clear();
         toast('Code détecté : '+decodedText);
