@@ -279,7 +279,7 @@ footer.credit{text-align:center;font-size:11px;color:var(--ink-soft);opacity:.7;
       </div>
     </section>
 
-    <footer class="credit">Données stockées localement (IndexedDB), synchronisées automatiquement dans le cloud si tu es connecté · Base d'aliments élargie (versions crues et cuites) type CIQUAL/EFSA · scan code-barres via Open Food Facts (connexion requise) · dépense sportive estimée par équivalent MET, affinée par ton métabolisme de base si ton profil est complété.</footer>
+    <footer class="credit">Données stockées localement (IndexedDB), synchronisées automatiquement dans le cloud si tu es connecté · Base de 281 aliments issue de la table Ciqual 2020 de l'Anses (ciqual.anses.fr), énergie recalculée selon le Règlement UE N° 1169/2011 (4/4/9 + 2 kcal/g pour les fibres) · scan code-barres via Open Food Facts (connexion requise) · dépense sportive estimée par équivalent MET, affinée par ton métabolisme de base si ton profil est complété.</footer>
   </div>
 
   <div id="viewCalendar" class="hidden">
@@ -319,6 +319,8 @@ footer.credit{text-align:center;font-size:11px;color:var(--ink-soft);opacity:.7;
           <div class="field"><label>Glucides (g)</label><input type="number" id="setCarb" inputmode="numeric"></div>
           <div class="field"><label>Lipides (g)</label><input type="number" id="setFat" inputmode="numeric"></div>
         </div>
+        <div class="field"><label>Fibres (g) <button type="button" class="info-btn" id="fibInfoBtn">i</button></label><input type="number" id="setFib" inputmode="numeric"></div>
+        <div id="fibSuggestion" class="tag-goalhist" style="margin-bottom:12px;"></div>
         <p class="desc" id="macroBalanceMsg"></p>
         <p class="desc" id="suggestSplit"></p>
         <button class="btn" id="saveGoalsBtn">Enregistrer ce nouvel objectif</button>
@@ -407,7 +409,7 @@ footer.credit{text-align:center;font-size:11px;color:var(--ink-soft);opacity:.7;
     </div>
 
     <div id="foodSearchPane">
-      <div class="field"><label>Aliment</label><input type="text" id="foodSearchInput" placeholder="tomate, blanc de poulet cru, riz cuit…"></div>
+      <div class="field"><label>Aliment <button type="button" class="info-btn" id="dbInfoBtn">i</button></label><input type="text" id="foodSearchInput" placeholder="tomate, blanc de poulet cru, riz cuit…"></div>
       <div class="search-results hidden" id="foodResults"></div>
     </div>
 
@@ -433,13 +435,14 @@ footer.credit{text-align:center;font-size:11px;color:var(--ink-soft);opacity:.7;
     <div id="foodCustomPane" class="hidden">
       <div class="field"><label>Nom de l'aliment</label><input type="text" id="cfName" placeholder="ex : galette de sarrasin maison"></div>
       <div class="row2">
-        <div class="field"><label>Kcal /100g ou 100ml</label><input type="number" id="cfKcal" inputmode="decimal"></div>
         <div class="field"><label>Protéines /100</label><input type="number" id="cfProt" inputmode="decimal"></div>
+        <div class="field"><label>Glucides /100 <button type="button" class="info-btn" id="cfCarbInfoBtn">i</button></label><input type="number" id="cfCarb" inputmode="decimal"></div>
       </div>
       <div class="row2">
-        <div class="field"><label>Glucides /100</label><input type="number" id="cfCarb" inputmode="decimal"></div>
+        <div class="field"><label>Fibres /100</label><input type="number" id="cfFib" inputmode="decimal" value="0"></div>
         <div class="field"><label>Lipides /100</label><input type="number" id="cfFat" inputmode="decimal"></div>
       </div>
+      <div class="preview-box" id="cfKcalPreview" style="display:block;">0 kcal /100</div>
       <div class="row2">
         <div class="field"><label>Type</label><select id="cfLiquid"><option value="0">Solide (g)</option><option value="1">Liquide (ml)</option></select></div>
         <div class="field"><label>Poids d'1 unité (g, optionnel)</label><input type="number" id="cfUnitG" placeholder="ex : 50"></div>
@@ -518,245 +521,353 @@ let cloudUser = null;
 
 /* ============================================================
    DONNÉES DE RÉFÉRENCE — ALIMENTS
-   Valeurs typiques pour 100g/100ml, cohérentes avec les ordres
-   de grandeur des tables CIQUAL (ANSES) / EFSA. Versions "cru"
-   et "cuit" séparées quand la différence de poids/densité est
+   Source unique : table Ciqual 2020 de l'Anses (Agence nationale de
+   sécurité sanitaire de l'alimentation), 3 185 aliments, libre accès
+   sur ciqual.anses.fr. C'est la table de référence française, et elle
+   applique le Règlement UE N° 1169/2011 : les glucides y excluent les
+   fibres, et l'énergie publiée est calculée en 4/4/9 + 2 kcal/g de
+   fibres. Chaque entrée porte son code Ciqual (cq) pour être
+   revérifiable, et l'énergie publiée par l'Anses (kcq) pour contrôle.
+   L'appli recalcule toujours l'énergie depuis les macros. L'écart
+   résiduel (1,1 kcal/100 g en moyenne) vient des acides organiques,
+   que l'appli ne suit pas : il est signalé à l'ajout dès qu'il
+   dépasse 5 kcal/100 g.
+   ------------------------------------------------------------
+   Versions "cru" et "cuit" séparées quand la différence est
    significative (féculents, légumineuses, viandes, poissons).
    ============================================================ */
+/* ============================================================
+   ÉNERGIE — Règlement UE N° 1169/2011
+   Coefficients utilisés par la table Ciqual (Anses) et par toutes
+   les étiquettes nutritionnelles vendues en Europe. Les glucides
+   sont comptés HORS fibres, les fibres ont leur propre coefficient.
+   L'énergie n'est jamais stockée : elle est toujours recalculée à
+   partir des macros, ce qui rend tout écart impossible.
+   ============================================================ */
+const KCAL_PER_G = {prot:4, carb:4, fat:9, fib:2};
+
+function kcalFrom(m){
+  return (m.p||0)*KCAL_PER_G.prot
+       + (m.c||0)*KCAL_PER_G.carb
+       + (m.f||0)*KCAL_PER_G.fat
+       + (m.fib||0)*KCAL_PER_G.fib;
+}
+
 const FOOD_DB = [
- // Légumes
- {n:"Tomate",cat:"Légume",k:18,p:0.9,c:3.9,f:0.2,unitG:120},
- {n:"Carotte",cat:"Légume",k:41,p:0.9,c:10,f:0.2,unitG:80},
- {n:"Courgette",cat:"Légume",k:17,p:1.2,c:3.1,f:0.3,unitG:200},
- {n:"Brocoli",cat:"Légume",k:34,p:2.8,c:7,f:0.4},
- {n:"Poivron",cat:"Légume",k:31,p:1,c:6,f:0.3,unitG:150},
- {n:"Épinard",cat:"Légume",k:23,p:2.9,c:3.6,f:0.4},
- {n:"Oignon",cat:"Légume",k:40,p:1.1,c:9.3,f:0.1,unitG:100},
- {n:"Concombre",cat:"Légume",k:15,p:0.7,c:3.6,f:0.1},
- {n:"Salade verte",cat:"Légume",k:15,p:1.4,c:2.9,f:0.2},
- {n:"Champignon de Paris",cat:"Légume",k:22,p:3.1,c:3.3,f:0.3},
- // Légumes (enrichissement — sources CIQUAL/ANSES et équivalents)
- {n:"Navet (cru)",cat:"Légume",k:28,p:1,c:4.5,f:0.1},
- {n:"Radis (cru)",cat:"Légume",k:16,p:0.7,c:2.1,f:0.1},
- {n:"Betterave rouge (crue)",cat:"Légume",k:43,p:1.7,c:8,f:0.2},
- {n:"Betterave rouge (cuite)",cat:"Légume",k:40,p:1.5,c:7.6,f:0.2},
- {n:"Panais (cru)",cat:"Légume",k:68,p:1.4,c:13,f:0.4},
- {n:"Topinambour (cru)",cat:"Légume",k:57,p:1.9,c:11.5,f:0.3},
- {n:"Patate douce (crue)",cat:"Légume",k:86,p:1.6,c:20,f:0.1},
- {n:"Patate douce (cuite)",cat:"Légume",k:90,p:1.4,c:21,f:0.1},
- {n:"Artichaut (cuit)",cat:"Légume",k:47,p:2.1,c:8,f:0.2,unitG:120},
- {n:"Asperge verte (crue)",cat:"Légume",k:25,p:2.2,c:2.5,f:0.2},
- {n:"Asperge blanche (crue)",cat:"Légume",k:22,p:1.9,c:2,f:0.2},
- {n:"Chou blanc (cru)",cat:"Légume",k:25,p:1.3,c:4,f:0.2},
- {n:"Chou rouge (cru)",cat:"Légume",k:27,p:1.4,c:4.3,f:0.2},
- {n:"Chou vert frisé / Kale (cru)",cat:"Légume",k:49,p:4.3,c:4,f:0.9},
- {n:"Chou-fleur (cru)",cat:"Légume",k:25,p:2,c:3,f:0.3},
- {n:"Chou de Bruxelles (cru)",cat:"Légume",k:43,p:3.4,c:4.3,f:0.3},
- {n:"Poireau (cru)",cat:"Légume",k:29,p:1.5,c:4.5,f:0.3,unitG:150},
- {n:"Céleri branche (cru)",cat:"Légume",k:12,p:0.8,c:1.4,f:0.1},
- {n:"Céleri-rave (cru)",cat:"Légume",k:34,p:1.5,c:4.3,f:0.3},
- {n:"Fenouil (cru)",cat:"Légume",k:21,p:1.2,c:2.8,f:0.2},
- {n:"Aubergine (crue)",cat:"Légume",k:22,p:1,c:3.5,f:0.2,unitG:250},
- {n:"Haricot vert (cru)",cat:"Légume",k:29,p:1.8,c:4,f:0.2},
- {n:"Petit pois (crus)",cat:"Légume",k:78,p:5.4,c:11,f:0.5},
- {n:"Fève fraîche (crue)",cat:"Légume",k:68,p:5.6,c:8.3,f:0.6},
- {n:"Endive (crue)",cat:"Légume",k:15,p:1,c:1.8,f:0.1,unitG:120},
- {n:"Mâche (crue)",cat:"Légume",k:20,p:1.9,c:1.3,f:0.4},
- {n:"Roquette (crue)",cat:"Légume",k:22,p:2.6,c:1.5,f:0.4},
- {n:"Cresson (cru)",cat:"Légume",k:19,p:2.9,c:0.6,f:0.3},
- {n:"Chou-rave (cru)",cat:"Légume",k:27,p:1.7,c:4.2,f:0.1},
- {n:"Blette / Bette à carde (crue)",cat:"Légume",k:19,p:1.8,c:2.1,f:0.2},
- {n:"Cardon (cru)",cat:"Légume",k:17,p:0.7,c:2.6,f:0.1},
- {n:"Salsifis (cuit)",cat:"Légume",k:70,p:2,c:14,f:0.3},
- {n:"Rutabaga (cru)",cat:"Légume",k:39,p:1.3,c:8.7,f:0.2},
- {n:"Maïs doux (cuit)",cat:"Légume",k:96,p:3.2,c:19,f:1.2},
- {n:"Potiron / Citrouille (cru)",cat:"Légume",k:26,p:1,c:5.8,f:0.1},
- {n:"Butternut (cru)",cat:"Légume",k:40,p:1,c:10,f:0.1},
- {n:"Potimarron (cru)",cat:"Légume",k:20,p:1,c:4.5,f:0.1},
- {n:"Pâtisson (cru)",cat:"Légume",k:18,p:1.2,c:3,f:0.2},
- {n:"Chayote (crue)",cat:"Légume",k:19,p:0.8,c:4.1,f:0.1},
- {n:"Gombo / Okra (cru)",cat:"Légume",k:33,p:1.9,c:7.5,f:0.2},
- // Fruits
- {n:"Pomme",cat:"Fruit",k:52,p:0.3,c:14,f:0.2,unitG:180},
- {n:"Banane",cat:"Fruit",k:89,p:1.1,c:23,f:0.3,unitG:120},
- {n:"Orange",cat:"Fruit",k:47,p:0.9,c:12,f:0.1,unitG:150},
- {n:"Fraise",cat:"Fruit",k:32,p:0.7,c:7.7,f:0.3},
- {n:"Raisin",cat:"Fruit",k:69,p:0.7,c:18,f:0.2},
- {n:"Poire",cat:"Fruit",k:57,p:0.4,c:15,f:0.1,unitG:170},
- {n:"Kiwi",cat:"Fruit",k:61,p:1.1,c:15,f:0.5,unitG:75},
- {n:"Pastèque",cat:"Fruit",k:30,p:0.6,c:7.6,f:0.2},
- {n:"Avocat",cat:"Fruit",k:160,p:2,c:8.5,f:15,unitG:200},
- {n:"Citron",cat:"Fruit",k:29,p:1.1,c:9.3,f:0.3,unitG:60},
- // Fruits (enrichissement — sources CIQUAL/ANSES et équivalents)
- {n:"Abricot",cat:"Fruit",k:47,p:1.4,c:8.5,f:0.3,unitG:40},
- {n:"Pêche",cat:"Fruit",k:39,p:0.9,c:9,f:0.1,unitG:130},
- {n:"Nectarine",cat:"Fruit",k:44,p:1.1,c:10,f:0.3,unitG:130},
- {n:"Prune (quetsche)",cat:"Fruit",k:46,p:0.7,c:11,f:0.3,unitG:40},
- {n:"Mirabelle",cat:"Fruit",k:55,p:0.6,c:13,f:0.2,unitG:8},
- {n:"Cerise",cat:"Fruit",k:63,p:1.1,c:14.5,f:0.3},
- {n:"Ananas",cat:"Fruit",k:50,p:0.5,c:12.6,f:0.1},
- {n:"Mangue",cat:"Fruit",k:60,p:0.8,c:14,f:0.4,unitG:300},
- {n:"Papaye",cat:"Fruit",k:43,p:0.5,c:10,f:0.3,unitG:400},
- {n:"Fruit de la passion",cat:"Fruit",k:68,p:2.2,c:11.2,f:0.7,unitG:40},
- {n:"Litchi",cat:"Fruit",k:66,p:0.8,c:16.5,f:0.4,unitG:15},
- {n:"Figue fraîche",cat:"Fruit",k:67,p:1.3,c:16,f:0.3,unitG:50},
- {n:"Grenade",cat:"Fruit",k:68,p:1.5,c:14,f:0.6,unitG:300},
- {n:"Coing",cat:"Fruit",k:33,p:0.4,c:8.5,f:0.1},
- {n:"Myrtille",cat:"Fruit",k:43,p:0.7,c:8.5,f:0.4},
- {n:"Framboise",cat:"Fruit",k:33,p:1.1,c:5.5,f:0.4},
- {n:"Mûre",cat:"Fruit",k:36,p:1.4,c:4.8,f:0.5},
- {n:"Groseille",cat:"Fruit",k:30,p:1.1,c:5.4,f:0.3},
- {n:"Cassis",cat:"Fruit",k:50,p:1.4,c:9,f:0.4},
- {n:"Physalis (alkékenge)",cat:"Fruit",k:53,p:1.9,c:11,f:0.7},
- {n:"Kaki / Plaquemine",cat:"Fruit",k:70,p:0.6,c:17,f:0.3,unitG:170},
- {n:"Clémentine",cat:"Fruit",k:47,p:0.8,c:11,f:0.2,unitG:70},
- {n:"Mandarine",cat:"Fruit",k:44,p:0.8,c:10.6,f:0.3,unitG:75},
- {n:"Pamplemousse",cat:"Fruit",k:33,p:0.7,c:8,f:0.1,unitG:300},
- {n:"Pomelo",cat:"Fruit",k:42,p:0.8,c:10,f:0.2,unitG:350},
- {n:"Melon",cat:"Fruit",k:34,p:0.8,c:7.6,f:0.2},
- {n:"Rhubarbe (crue)",cat:"Fruit",k:16,p:0.9,c:2.9,f:0.2},
- {n:"Datte fraîche",cat:"Fruit",k:145,p:2.5,c:34,f:0.4,unitG:10},
- {n:"Datte séchée",cat:"Fruit",k:282,p:2.2,c:66,f:0.4,unitG:8},
- {n:"Fruit du dragon / Pitaya",cat:"Fruit",k:60,p:1.2,c:13,f:0.4},
- {n:"Groseille à maquereau",cat:"Fruit",k:44,p:0.9,c:10,f:0.4},
- {n:"Canneberge / Cranberry (fraîche)",cat:"Fruit",k:46,p:0.4,c:12,f:0.1},
- // Féculents & légumineuses
- {n:"Riz blanc (cru)",cat:"Féculent",k:349,p:7.1,c:77,f:0.6},
- {n:"Riz blanc (cuit)",cat:"Féculent",k:130,p:2.7,c:28,f:0.3},
- {n:"Riz complet (cru)",cat:"Féculent",k:350,p:7.5,c:72,f:2.7},
- {n:"Riz complet (cuit)",cat:"Féculent",k:112,p:2.3,c:24,f:0.9},
- {n:"Pâtes (crues)",cat:"Féculent",k:371,p:13,c:75,f:1.5},
- {n:"Pâtes (cuites)",cat:"Féculent",k:158,p:5.8,c:31,f:0.9},
- {n:"Pomme de terre (crue)",cat:"Féculent",k:77,p:2,c:17,f:0.1},
- {n:"Pomme de terre (cuite)",cat:"Féculent",k:87,p:1.9,c:20,f:0.1},
- {n:"Quinoa (cru)",cat:"Féculent",k:368,p:14,c:64,f:6.1},
- {n:"Quinoa (cuit)",cat:"Féculent",k:120,p:4.4,c:21,f:1.9},
- {n:"Lentilles (crues, sèches)",cat:"Féculent",k:353,p:25,c:60,f:1.1},
- {n:"Lentilles (cuites)",cat:"Féculent",k:116,p:9,c:20,f:0.4},
- {n:"Pois chiches (cuits)",cat:"Féculent",k:164,p:8.9,c:27,f:2.6},
- {n:"Haricots rouges (cuits)",cat:"Féculent",k:127,p:8.7,c:22.8,f:0.5},
- {n:"Pain blanc",cat:"Féculent",k:265,p:9,c:49,f:3.2,unitG:30},
- {n:"Pain complet",cat:"Féculent",k:247,p:13,c:41,f:4.2,unitG:30},
- {n:"Flocons d'avoine (secs)",cat:"Féculent",k:389,p:16.9,c:66,f:6.9},
- {n:"Semoule de couscous (cuite)",cat:"Féculent",k:112,p:3.8,c:23,f:0.2},
- // Viandes / poissons / œufs
- {n:"Blanc de poulet (cru)",cat:"Viande/poisson/œuf",k:120,p:22.5,c:0,f:2.6},
- {n:"Blanc de poulet (cuit)",cat:"Viande/poisson/œuf",k:165,p:31,c:0,f:3.6},
- {n:"Escalope de dinde (crue)",cat:"Viande/poisson/œuf",k:104,p:22,c:0,f:1.4},
- {n:"Escalope de dinde (cuite)",cat:"Viande/poisson/œuf",k:135,p:29,c:0,f:1.7},
- {n:"Steak haché 5% MG (cru)",cat:"Viande/poisson/œuf",k:132,p:20,c:0,f:5},
- {n:"Steak haché 5% MG (cuit)",cat:"Viande/poisson/œuf",k:172,p:26,c:0,f:6.5},
- {n:"Saumon (cru)",cat:"Viande/poisson/œuf",k:182,p:20,c:0,f:11},
- {n:"Saumon (cuit)",cat:"Viande/poisson/œuf",k:208,p:25,c:0,f:12},
- {n:"Cabillaud (cru)",cat:"Viande/poisson/œuf",k:74,p:17,c:0,f:0.5},
- {n:"Cabillaud (cuit)",cat:"Viande/poisson/œuf",k:82,p:18,c:0,f:0.7},
- {n:"Thon au naturel (boîte)",cat:"Viande/poisson/œuf",k:116,p:26,c:0,f:1},
- {n:"Thon (cru)",cat:"Viande/poisson/œuf",k:108,p:23.5,c:0,f:1},
- {n:"Œuf",cat:"Viande/poisson/œuf",k:155,p:13,c:1.1,f:11,unitG:50},
- {n:"Jambon blanc",cat:"Viande/poisson/œuf",k:145,p:21,c:1,f:6,unitG:25},
- {n:"Crevettes (cuites)",cat:"Viande/poisson/œuf",k:99,p:24,c:0.2,f:0.3,unitG:5},
- {n:"Tofu nature",cat:"Viande/poisson/œuf",k:76,p:8,c:1.9,f:4.8},
- // Viandes — bœuf (CIQUAL ANSES)
- {n:"Rumsteck de bœuf (cru)",cat:"Viande/poisson/œuf",k:114,p:22.5,c:0.4,f:2.5},
- {n:"Entrecôte de bœuf (crue)",cat:"Viande/poisson/œuf",k:232,p:19.4,c:0,f:17.1},
- {n:"Bavette de bœuf (crue)",cat:"Viande/poisson/œuf",k:103,p:18.3,c:0,f:3.3},
- {n:"Faux-filet de bœuf (cru)",cat:"Viande/poisson/œuf",k:152,p:22.3,c:0.6,f:6.7},
- {n:"Faux-filet de bœuf (cuit)",cat:"Viande/poisson/œuf",k:182,p:27.1,c:0,f:8.2},
- {n:"Onglet de bœuf (cru)",cat:"Viande/poisson/œuf",k:155,p:21,c:0,f:6.6},
- {n:"Paleron de bœuf (cru, à braiser)",cat:"Viande/poisson/œuf",k:154,p:21,c:0,f:6.5},
- {n:"Filet de bœuf / tournedos (cru)",cat:"Viande/poisson/œuf",k:143,p:21,c:0,f:6},
- {n:"Rôti de bœuf (cru, ficelé)",cat:"Viande/poisson/œuf",k:175,p:28,c:0,f:7},
- // Viandes — porc (CIQUAL ANSES / INAPORC)
- {n:"Échine de porc (crue)",cat:"Viande/poisson/œuf",k:172,p:20,c:0,f:8.6},
- {n:"Rôti de porc dans l'échine (cru, ficelé)",cat:"Viande/poisson/œuf",k:191,p:20,c:0,f:11.6},
- {n:"Rôti de porc dans l'épaule (cuit au four)",cat:"Viande/poisson/œuf",k:227,p:32.5,c:0,f:10.8},
- {n:"Côte de porc (crue)",cat:"Viande/poisson/œuf",k:164,p:19.8,c:0.4,f:9.3},
- {n:"Côte de porc (cuite)",cat:"Viande/poisson/œuf",k:215,p:21.5,c:0,f:14},
- {n:"Filet mignon de porc (cru)",cat:"Viande/poisson/œuf",k:123,p:21.2,c:0.4,f:4.1},
- {n:"Filet mignon de porc (cuit)",cat:"Viande/poisson/œuf",k:168,p:26.1,c:0,f:7.1},
- {n:"Escalope de jambon frais (cuite à la poêle)",cat:"Viande/poisson/œuf",k:150,p:36,c:0,f:6.2},
- // Viandes — veau (CIQUAL ANSES)
- {n:"Escalope de veau (crue)",cat:"Viande/poisson/œuf",k:109,p:20.7,c:0.6,f:2.6},
- {n:"Escalope de veau (cuite)",cat:"Viande/poisson/œuf",k:147,p:31,c:0,f:2.5},
- {n:"Côte de veau (crue)",cat:"Viande/poisson/œuf",k:189,p:18.3,c:0,f:12.9},
- // Viandes — agneau (CIQUAL ANSES)
- {n:"Gigot d'agneau (cru)",cat:"Viande/poisson/œuf",k:128,p:20,c:0.5,f:5.1},
- {n:"Gigot d'agneau (cuit au four)",cat:"Viande/poisson/œuf",k:169,p:27,c:0,f:6.9},
- {n:"Côtelette d'agneau / côte filet (crue)",cat:"Viande/poisson/œuf",k:232,p:16.3,c:0,f:18.5},
- {n:"Épaule d'agneau (crue)",cat:"Viande/poisson/œuf",k:190,p:22.3,c:0,f:11.2},
- {n:"Collier d'agneau (cru)",cat:"Viande/poisson/œuf",k:250,p:25,c:0,f:16.4},
- // Viandes — mouton (CIQUAL ANSES)
- {n:"Mouton, viande (crue)",cat:"Viande/poisson/œuf",k:137,p:20.6,c:0,f:6.1},
- {n:"Gigot de mouton (cru)",cat:"Viande/poisson/œuf",k:225,p:18,c:0,f:17},
- {n:"Côtelette de mouton (crue)",cat:"Viande/poisson/œuf",k:216,p:18,c:0,f:16},
- // Viandes — volailles : poulet, dinde, canard (CIQUAL ANSES)
- {n:"Cuisse de poulet, sans peau (crue)",cat:"Viande/poisson/œuf",k:114,p:19.3,c:0,f:4.1},
- {n:"Cuisse de poulet, avec peau (crue)",cat:"Viande/poisson/œuf",k:188,p:18,c:2.1,f:11.9},
- {n:"Haut de cuisse de poulet, sans peau (cuit)",cat:"Viande/poisson/œuf",k:177,p:26,c:0,f:9},
- {n:"Pilon de poulet, sans peau (cru)",cat:"Viande/poisson/œuf",k:145,p:19,c:0,f:7},
- {n:"Aile de poulet, sans peau (crue)",cat:"Viande/poisson/œuf",k:175,p:18,c:0,f:12},
- {n:"Poulet rôti entier (cuit)",cat:"Viande/poisson/œuf",k:195,p:20,c:0,f:12},
- {n:"Cuisse de dinde (crue)",cat:"Viande/poisson/œuf",k:182,p:28.6,c:0,f:9.1},
- {n:"Cuisse de dinde rôtie (cuite)",cat:"Viande/poisson/œuf",k:170,p:28,c:0,f:6},
- {n:"Blanc de dinde rôti entier (cuit)",cat:"Viande/poisson/œuf",k:135,p:29,c:0,f:1.7},
- {n:"Magret de canard, avec peau (cru)",cat:"Viande/poisson/œuf",k:340,p:17.9,c:0.9,f:29.4},
- {n:"Magret de canard, sans peau (cru)",cat:"Viande/poisson/œuf",k:150,p:23,c:0,f:6},
- {n:"Magret de canard grillé, avec peau (cuit)",cat:"Viande/poisson/œuf",k:205,p:26.7,c:0,f:10.9},
- {n:"Cuisse de canard, avec peau (crue)",cat:"Viande/poisson/œuf",k:103,p:18.7,c:0,f:3.1},
- {n:"Cuisse de canard confite",cat:"Viande/poisson/œuf",k:269,p:22.2,c:0,f:20},
- {n:"Canard rôti entier (cuit)",cat:"Viande/poisson/œuf",k:194,p:23.3,c:0,f:11.2},
- // Poissons — par espèce (CIQUAL ANSES), filets crus sauf mention contraire
- {n:"Thon albacore (cru)",cat:"Viande/poisson/œuf",k:108,p:25,c:0,f:0.9},
- {n:"Thon rouge (cru)",cat:"Viande/poisson/œuf",k:155,p:23.3,c:0,f:6.8},
- {n:"Truite (crue)",cat:"Viande/poisson/œuf",k:120,p:20,c:0,f:4},
- {n:"Colin / Lieu noir (cru)",cat:"Viande/poisson/œuf",k:80,p:19,c:0,f:0.5},
- {n:"Lieu jaune (cru)",cat:"Viande/poisson/œuf",k:82,p:18,c:0,f:1},
- {n:"Dorade (crue)",cat:"Viande/poisson/œuf",k:90,p:19,c:0,f:1.8},
- {n:"Bar / Loup de mer (cru)",cat:"Viande/poisson/œuf",k:97,p:20,c:0,f:2},
- {n:"Sole (crue)",cat:"Viande/poisson/œuf",k:86,p:18,c:0,f:1.5},
- {n:"Sardine (crue)",cat:"Viande/poisson/œuf",k:150,p:20.4,c:0,f:8.6},
- {n:"Maquereau (cru)",cat:"Viande/poisson/œuf",k:198,p:18.1,c:0.9,f:13.5},
- {n:"Hareng (cru)",cat:"Viande/poisson/œuf",k:158,p:17,c:0,f:10},
- {n:"Anchois frais (cru)",cat:"Viande/poisson/œuf",k:131,p:20,c:0,f:5},
- {n:"Merlu (cru)",cat:"Viande/poisson/œuf",k:85,p:17,c:0,f:1.4},
- {n:"Rouget barbet (cru)",cat:"Viande/poisson/œuf",k:115,p:19,c:0,f:4},
- {n:"Raie (crue)",cat:"Viande/poisson/œuf",k:72,p:17.4,c:0,f:0.7},
- {n:"Flétan (cru)",cat:"Viande/poisson/œuf",k:91,p:18.6,c:0,f:1.3},
- {n:"Turbot (cru)",cat:"Viande/poisson/œuf",k:85,p:16.5,c:0,f:1.7},
- {n:"Églefin / Haddock (cru)",cat:"Viande/poisson/œuf",k:73,p:16.8,c:0,f:0.5},
- {n:"Lotte / Baudroie (crue)",cat:"Viande/poisson/œuf",k:70,p:14.5,c:0,f:0.8},
- {n:"Carrelet / Plie (crue)",cat:"Viande/poisson/œuf",k:79,p:17,c:0,f:1},
- {n:"Espadon (cru)",cat:"Viande/poisson/œuf",k:121,p:19.8,c:0,f:4},
- // Fruits de mer — équivalent poids/pièce quand pertinent
- {n:"Moule, chair (cuite)",cat:"Viande/poisson/œuf",k:87,p:12,c:3.4,f:2.2,unitG:3},
- {n:"Huître, chair (crue)",cat:"Viande/poisson/œuf",k:68,p:9,c:4.2,f:1.9,unitG:10},
- {n:"Praire / Palourde, chair (cuite)",cat:"Viande/poisson/œuf",k:74,p:13,c:3,f:1,unitG:4},
- {n:"Coquille Saint-Jacques, noix (crue)",cat:"Viande/poisson/œuf",k:88,p:17,c:3,f:0.8,unitG:20},
- {n:"Calamar / Encornet (cru)",cat:"Viande/poisson/œuf",k:78,p:13,c:3,f:1.2},
- {n:"Poulpe (cru)",cat:"Viande/poisson/œuf",k:82,p:15,c:2,f:1},
- {n:"Seiche (crue)",cat:"Viande/poisson/œuf",k:72,p:14,c:1.6,f:0.9},
- {n:"Langoustine, queue décortiquée (crue)",cat:"Viande/poisson/œuf",k:85,p:18,c:0.5,f:1,unitG:12},
- {n:"Crabe / Tourteau, chair (cuite)",cat:"Viande/poisson/œuf",k:97,p:19,c:0,f:1.5},
- {n:"Homard, chair (cuite)",cat:"Viande/poisson/œuf",k:89,p:19,c:0,f:1},
- {n:"Bulot, chair (cuite)",cat:"Viande/poisson/œuf",k:90,p:18,c:1.5,f:0.6,unitG:5},
- {n:"Bigorneau, chair (cuite)",cat:"Viande/poisson/œuf",k:90,p:16,c:2,f:1.5,unitG:0.5},
- // Laitiers
- {n:"Lait demi-écrémé",cat:"Laitier",k:46,p:3.3,c:4.8,f:1.5,isLiquid:true},
- {n:"Yaourt nature",cat:"Laitier",k:61,p:3.5,c:4.7,f:3.3,unitG:125},
- {n:"Fromage blanc 0%",cat:"Laitier",k:45,p:7.5,c:4,f:0.2},
- {n:"Emmental",cat:"Laitier",k:380,p:28,c:0,f:29},
- {n:"Camembert",cat:"Laitier",k:300,p:20,c:0.5,f:24},
- {n:"Skyr",cat:"Laitier",k:63,p:10,c:4,f:0.2},
- // Matières grasses
- {n:"Huile d'olive",cat:"Matière grasse",k:900,p:0,c:0,f:100,isLiquid:true},
- {n:"Beurre",cat:"Matière grasse",k:717,p:0.8,c:0.1,f:81},
- {n:"Amandes",cat:"Matière grasse",k:579,p:21,c:22,f:50},
- {n:"Noix",cat:"Matière grasse",k:654,p:15,c:14,f:65},
- {n:"Beurre de cacahuète",cat:"Matière grasse",k:588,p:25,c:20,f:50},
- // Autres
- {n:"Chocolat noir 70%",cat:"Autre",k:598,p:7.8,c:46,f:43},
- {n:"Miel",cat:"Autre",k:304,p:0.3,c:82,f:0},
- {n:"Sucre",cat:"Autre",k:400,p:0,c:100,f:0},
+  // Légumes
+  {n:"Tomate (crue)",cat:"Légume",p:0.86,c:2.49,fib:1.2,f:0.26,unitG:120,cq:20047,kcq:19},
+  {n:"Tomate (rôtie au four)",cat:"Légume",p:1,c:3.53,fib:1.9,f:0.4,cq:20334,kcq:25},
+  {n:"Carotte (crue)",cat:"Légume",p:0.63,c:7.59,fib:2.7,f:0,unitG:80,cq:20009,kcq:40},
+  {n:"Carotte (cuite)",cat:"Légume",p:0.55,c:2.6,fib:2.8,f:0.1,cq:20008,kcq:19},
+  {n:"Courgette (crue)",cat:"Légume",p:1.23,c:1.8,fib:1.05,f:0.26,unitG:200,cq:20020,kcq:16},
+  {n:"Courgette (cuite)",cat:"Légume",p:0.93,c:1.4,fib:1.5,f:0.36,cq:20021,kcq:16},
+  {n:"Brocoli (cru)",cat:"Légume",p:3.95,c:1.7,fib:2.9,f:0.48,cq:20057,kcq:36},
+  {n:"Brocoli (cuit)",cat:"Légume",p:2.1,c:1.1,fib:1.5,f:0.78,cq:20006,kcq:23},
+  {n:"Poivron (cru)",cat:"Légume",p:0.8,c:4.55,fib:1.5,f:0.27,unitG:150,cq:20041,kcq:27},
+  {n:"Épinard (cru)",cat:"Légume",p:2.62,c:2.25,fib:2.37,f:0.5,cq:20059,kcq:29},
+  {n:"Épinard (cuit)",cat:"Légume",p:3.2,c:0.5,fib:2.7,f:0.14,cq:20027,kcq:21},
+  {n:"Oignon (cru)",cat:"Légume",p:1.1,c:6.25,fib:1.7,f:0.62,unitG:100,cq:20034,kcq:39},
+  {n:"Oignon (cuit)",cat:"Légume",p:1.3,c:6.2,fib:1.4,f:0.2,cq:20035,kcq:35},
+  {n:"Concombre (cru)",cat:"Légume",p:0.64,c:2.54,fib:0.6,f:0.11,cq:20019,kcq:16},
+  {n:"Salade verte (crue)",cat:"Légume",p:1.01,c:1.5,fib:1.3,f:0.1,cq:25604,kcq:14},
+  {n:"Champignon de Paris (cru)",cat:"Légume",p:2.62,c:3.15,fib:1,f:0.36,cq:20056,kcq:28},
+  {n:"Champignon de Paris (cuit à l'eau)",cat:"Légume",p:2.17,c:3,fib:2.2,f:0.47,cq:20102,kcq:29},
+
+  // Légumes (enrichissement — sources CIQUAL/ANSES et équivalents)
+  {n:"Navet (cru)",cat:"Légume",p:0.76,c:4.7,fib:1.9,f:0.1,cq:20064,kcq:27},
+  {n:"Radis rouge (cru)",cat:"Légume",p:0.94,c:1.53,fib:1.4,f:0,cq:20045,kcq:14},
+  {n:"Betterave rouge (crue)",cat:"Légume",p:1.74,c:9.1,fib:2.55,f:0.24,cq:20091,kcq:51},
+  {n:"Betterave rouge (cuite)",cat:"Légume",p:1.44,c:7.13,fib:2.5,f:0.4,cq:20003,kcq:43},
+  {n:"Panais (cru)",cat:"Légume",p:1.54,c:10.1,fib:4.7,f:0.4,cq:20181,kcq:58},
+  {n:"Panais (cuit)",cat:"Légume",p:1.32,c:13.4,fib:3.6,f:0.3,cq:20133,kcq:68},
+  {n:"Topinambour (cru)",cat:"Légume",p:1.94,c:11.5,fib:2.1,f:0.31,cq:20196,kcq:61},
+  {n:"Topinambour (cuit)",cat:"Légume",p:1.8,c:16,fib:2.2,f:0.7,cq:20050,kcq:82},
+  {n:"Patate douce (crue)",cat:"Légume",p:1.51,c:18.3,fib:2.87,f:0.15,cq:4101,kcq:86},
+  {n:"Patate douce (cuite)",cat:"Légume",p:1.69,c:12.2,fib:2.9,f:0.15,cq:4102,kcq:63},
+  {n:"Artichaut (cuit)",cat:"Légume",p:2.53,c:0.99,fib:8.3,f:0.28,unitG:120,cq:20000,kcq:33},
+  {n:"Artichaut (cru)",cat:"Légume",p:3.2,c:4.92,fib:5.4,f:0.18,unitG:120,cq:20052,kcq:46},
+  {n:"Asperge verte (crue)",cat:"Légume",p:2.46,c:2.03,fib:2.15,f:0.27,cq:20279,kcq:25},
+  {n:"Asperge blanche (crue)",cat:"Légume",p:2.5,c:2.5,fib:1.8,f:0.3,cq:20282,kcq:26},
+  {n:"Chou blanc (cru)",cat:"Légume",p:1.38,c:4.63,fib:3.5,f:0.6,cq:20116,kcq:36},
+  {n:"Chou blanc (cuit à l'eau)",cat:"Légume",p:1,c:3.23,fib:2.7,f:0,cq:20308,kcq:24},
+  {n:"Chou rouge (cru)",cat:"Légume",p:1.13,c:4.33,fib:2.8,f:0,cq:20014,kcq:30},
+  {n:"Chou rouge (cuit à l'étouffée)",cat:"Légume",p:1.19,c:5.7,fib:3,f:0,cq:20310,kcq:35},
+  {n:"Chou frisé / Kale (cru)",cat:"Légume",p:4.33,c:4.2,fib:4.9,f:1.07,cq:20218,kcq:54},
+  {n:"Chou frisé / Kale (cuit)",cat:"Légume",p:1.9,c:3.63,fib:2,f:0.4,cq:20219,kcq:30},
+  {n:"Chou-fleur (cru)",cat:"Légume",p:1.81,c:2.13,fib:2.2,f:0.7,cq:20016,kcq:26},
+  {n:"Chou-fleur (cuit)",cat:"Légume",p:1.6,c:1.6,fib:2,f:0.46,cq:20017,kcq:21},
+  {n:"Chou de Bruxelles (cru)",cat:"Légume",p:3.98,c:5.67,fib:3.95,f:0.4,cq:20058,kcq:50},
+  {n:"Chou de Bruxelles (cuit)",cat:"Légume",p:2.6,c:4.2,fib:3.2,f:0.11,cq:20013,kcq:35},
+  {n:"Poireau (cru)",cat:"Légume",p:1.49,c:4.9,fib:2.27,f:0.25,unitG:150,cq:20039,kcq:32},
+  {n:"Poireau (cuit)",cat:"Légume",p:1.1,c:3,fib:3.2,f:0.2,cq:20040,kcq:25},
+  {n:"Céleri branche (cru)",cat:"Légume",p:0.63,c:2.41,fib:2.2,f:0,cq:20023,kcq:18},
+  {n:"Céleri branche (cuit)",cat:"Légume",p:0.83,c:1.2,fib:1.6,f:0.16,cq:20024,kcq:13},
+  {n:"Céleri-rave (cru)",cat:"Légume",p:1.38,c:3.98,fib:4.5,f:0,cq:20055,kcq:29},
+  {n:"Céleri-rave (cuit)",cat:"Légume",p:1.3,c:4.6,fib:2.6,f:0.86,cq:20025,kcq:37},
+  {n:"Fenouil (cru)",cat:"Légume",p:1,c:2.63,fib:2.6,f:0,cq:20028,kcq:22},
+  {n:"Aubergine (crue)",cat:"Légume",p:1.12,c:2.39,fib:2.7,f:0.14,unitG:250,cq:20053,kcq:21},
+  {n:"Aubergine (cuite)",cat:"Légume",p:1.33,c:4.17,fib:4.3,f:0.28,cq:20002,kcq:33},
+  {n:"Haricot vert (cru)",cat:"Légume",p:1.85,c:4.14,fib:2.85,f:0.21,cq:20061,kcq:32},
+  {n:"Haricot vert (cuit)",cat:"Légume",p:2,c:3,fib:4,f:0.17,cq:20030,kcq:29},
+  {n:"Petit pois (crus)",cat:"Légume",p:5.84,c:7,fib:5.5,f:0.55,cq:20072,kcq:67},
+  {n:"Petit pois (cuits)",cat:"Légume",p:5.8,c:4.7,fib:5.8,f:0.87,cq:20037,kcq:61},
+  {n:"Fève à écosser (fraîche)",cat:"Légume",p:6.76,c:4.2,fib:5.85,f:0.67,cq:20517,kcq:62},
+  {n:"Endive (crue)",cat:"Légume",p:1.19,c:2.83,fib:1.1,f:0,unitG:120,cq:20026,kcq:20},
+  {n:"Endive (rôtie au four)",cat:"Légume",p:1.13,c:4.38,fib:0,f:0,cq:20316,kcq:24},
+  {n:"Mâche (crue)",cat:"Légume",p:2,c:0.5,fib:2.3,f:0,cq:20099,kcq:17},
+  {n:"Roquette (crue)",cat:"Légume",p:2.58,c:2.1,fib:1.6,f:0.66,cq:20217,kcq:28},
+  {n:"Cresson alénois (cru)",cat:"Légume",p:2.55,c:2.2,fib:1.35,f:0.6,cq:20199,kcq:27},
+  {n:"Chou-rave (cru)",cat:"Légume",p:1.79,c:2.35,fib:3.6,f:0.1,cq:20065,kcq:25},
+  {n:"Chou-rave (cuit à l'eau)",cat:"Légume",p:1.8,c:4.4,fib:1.1,f:0.11,cq:20094,kcq:28},
+  {n:"Blette / Bette à carde (crue)",cat:"Légume",p:1,c:1.63,fib:1.8,f:0,cq:20004,kcq:16},
+  {n:"Blette / Bette à carde (cuite)",cat:"Légume",p:0.7,c:1.23,fib:2.5,f:0,cq:20005,kcq:15},
+  {n:"Cardon (cru)",cat:"Légume",p:0.7,c:1.7,fib:1.6,f:0.1,cq:20054,kcq:14},
+  {n:"Cardon (cuit)",cat:"Légume",p:0.76,c:3.63,fib:1.7,f:0.11,cq:20241,kcq:22},
+  {n:"Salsifis (cuit)",cat:"Légume",p:2.73,c:12.3,fib:3.1,f:0.17,cq:20046,kcq:68},
+  {n:"Salsifis noir / Scorsonère (cru)",cat:"Légume",p:3.13,c:15.3,fib:3.3,f:0.3,cq:20197,kcq:83},
+  {n:"Rutabaga (cru)",cat:"Légume",p:1.17,c:5.7,fib:2.6,f:0.13,cq:20201,kcq:34},
+  {n:"Rutabaga (cuit)",cat:"Légume",p:0.93,c:4.26,fib:1.8,f:0.18,cq:20165,kcq:26},
+  {n:"Maïs doux en épis (cuit)",cat:"Légume",p:3.41,c:18.6,fib:2.4,f:1.5,cq:20049,kcq:106},
+  {n:"Maïs doux en épis (surgelé, cru)",cat:"Légume",p:3.36,c:17,fib:2.65,f:1.19,cq:20108,kcq:97},
+  {n:"Potiron (cru)",cat:"Légume",p:1,c:3.5,fib:0.5,f:0.1,cq:20044,kcq:20},
+  {n:"Potiron (cuit)",cat:"Légume",p:0.81,c:4.5,fib:2,f:0.07,cq:20096,kcq:26},
+  {n:"Courge butternut / doubeurre (crue)",cat:"Légume",p:1,c:5.4,fib:2,f:0.1,cq:20138,kcq:30},
+  {n:"Potimarron (cru)",cat:"Légume",p:0.63,c:3.1,fib:1.1,f:0.1,cq:20132,kcq:18},
+  {n:"Potimarron (cuit à l'étouffée)",cat:"Légume",p:1.31,c:7.05,fib:3.3,f:0.5,cq:20291,kcq:45},
+  {n:"Chayote / Christophine (crue)",cat:"Légume",p:0.72,c:2.8,fib:1.7,f:0.12,cq:13128,kcq:19},
+  {n:"Chayote / Christophine (cuite à l'eau)",cat:"Légume",p:0.62,c:2.29,fib:2.8,f:0.48,cq:13177,kcq:22},
+  {n:"Gombo / Okra (cuit)",cat:"Légume",p:1.87,c:2.01,fib:2.5,f:0.21,cq:58103,kcq:22},
+
+  // Fruits
+  {n:"Pomme (pulpe et peau)",cat:"Fruit",p:0.25,c:11.6,fib:1.4,f:0.25,unitG:180,cq:13039,kcq:54},
+  {n:"Banane",cat:"Fruit",p:1.06,c:19.7,fib:2.7,f:0,unitG:120,cq:13005,kcq:90},
+  {n:"Orange",cat:"Fruit",p:0.75,c:8.03,fib:2.7,f:0,unitG:150,cq:13034,kcq:46},
+  {n:"Fraise",cat:"Fruit",p:0.63,c:6.03,fib:3.8,f:0,cq:13014,kcq:39},
+  {n:"Raisin",cat:"Fruit",p:0.72,c:15.7,fib:0.9,f:0.16,cq:13112,kcq:69},
+  {n:"Poire (pulpe et peau)",cat:"Fruit",p:0.49,c:10.9,fib:2.9,f:0.27,unitG:170,cq:13037,kcq:54},
+  {n:"Kiwi",cat:"Fruit",p:0.88,c:11,fib:2.4,f:0.6,unitG:75,cq:13021,kcq:60},
+  {n:"Pastèque",cat:"Fruit",p:0.69,c:8.33,fib:0.5,f:0,cq:13036,kcq:39},
+  {n:"Avocat",cat:"Fruit",p:1.56,c:0.83,fib:3.6,f:20.6,unitG:200,cq:13004,kcq:205},
+  {n:"Jus de citron (pressé)",cat:"Fruit",p:0.49,c:2.41,fib:0.3,f:0.24,isLiquid:true,cq:2007,kcq:29},
+
+  // Fruits (enrichissement — sources CIQUAL/ANSES et équivalents)
+  {n:"Abricot",cat:"Fruit",p:0.81,c:9.01,fib:1.7,f:0,unitG:40,cq:13000,kcq:46},
+  {n:"Pêche (pulpe et peau)",cat:"Fruit",p:1.08,c:9,fib:1.6,f:0.33,unitG:130,cq:13043,kcq:46},
+  {n:"Nectarine / Brugnon",cat:"Fruit",p:1.16,c:8.9,fib:1.7,f:0.31,unitG:130,cq:13030,kcq:46},
+  {n:"Prune",cat:"Fruit",p:0.66,c:9.92,fib:1.5,f:0.29,unitG:40,cq:13100,kcq:52},
+  {n:"Mirabelle",cat:"Fruit",p:0.63,c:18,fib:2.2,f:0,unitG:8,cq:13027,kcq:77},
+  {n:"Cerise",cat:"Fruit",p:0.81,c:13,fib:1.6,f:0,cq:13008,kcq:56},
+  {n:"Ananas",cat:"Fruit",p:0,c:11.7,fib:1.2,f:0,cq:13002,kcq:54},
+  {n:"Mangue",cat:"Fruit",p:0.63,c:14.3,fib:1.6,f:0,unitG:300,cq:13025,kcq:74},
+  {n:"Papaye",cat:"Fruit",p:0.75,c:8.53,fib:1.8,f:0,unitG:400,cq:13035,kcq:42},
+  {n:"Fruit de la passion",cat:"Fruit",p:2.13,c:10.9,fib:6.8,f:3,unitG:40,cq:13016,kcq:101},
+  {n:"Litchi",cat:"Fruit",p:1.13,c:16.1,fib:2,f:0,unitG:15,cq:13023,kcq:81},
+  {n:"Figue (fraîche)",cat:"Fruit",p:1.19,c:13.5,fib:4.1,f:0,unitG:50,cq:13012,kcq:69},
+  {n:"Grenade",cat:"Fruit",p:1.44,c:14.3,fib:2.3,f:1.2,unitG:300,cq:13018,kcq:81},
+  {n:"Coing",cat:"Fruit",p:0.51,c:13.4,fib:1.9,f:0.1,cq:13010,kcq:60},
+  {n:"Myrtille",cat:"Fruit",p:0.87,c:10.6,fib:2.4,f:0.33,cq:13028,kcq:58},
+  {n:"Framboise",cat:"Fruit",p:1.19,c:5.83,fib:4.3,f:0.8,cq:13015,kcq:49},
+  {n:"Mûre",cat:"Fruit",p:1.13,c:6.53,fib:5.2,f:0.7,cq:13029,kcq:47},
+  {n:"Groseille",cat:"Fruit",p:1.56,c:7.06,fib:4.6,f:0.7,cq:13019,kcq:68},
+  {n:"Cassis",cat:"Fruit",p:1.33,c:9.68,fib:5.8,f:0.86,cq:13007,kcq:71},
+  {n:"Kaki",cat:"Fruit",p:0.88,c:14.3,fib:3.4,f:0,unitG:170,cq:13066,kcq:69},
+  {n:"Clémentine / Mandarine",cat:"Fruit",p:0.81,c:9.17,fib:1.7,f:0,unitG:70,cq:13024,kcq:47},
+  {n:"Pamplemousse / Pomelo",cat:"Fruit",p:0,c:8.02,fib:0.8,f:0,unitG:300,cq:13040,kcq:40},
+  {n:"Melon cantaloup (charentais)",cat:"Fruit",p:1.13,c:14.8,fib:1.3,f:0,cq:13026,kcq:63},
+  {n:"Rhubarbe (crue)",cat:"Fruit",p:0.78,c:1.47,fib:2.47,f:0.23,cq:13047,kcq:22},
+  {n:"Datte (sèche)",cat:"Fruit",p:1.81,c:64.7,fib:7.3,f:0.25,unitG:8,cq:13011,kcq:287},
+  {n:"Groseille à maquereau",cat:"Fruit",p:0.75,c:4.88,fib:4.03,f:0.59,cq:13020,kcq:40},
+  {n:"Canneberge / Cranberry (crue)",cat:"Fruit",p:0.75,c:7.6,fib:5.13,f:0.13,cq:13113,kcq:45},
+
+  // Féculents & légumineuses
+  {n:"Riz blanc (cru)",cat:"Féculent",p:7.4,c:78,fib:1.05,f:0.91,cq:9100,kcq:352},
+  {n:"Riz blanc (cuit)",cat:"Féculent",p:3.06,c:31.8,fib:0.8,f:0.41,cq:9104,kcq:145},
+  {n:"Riz complet (cru)",cat:"Féculent",p:7.38,c:71.4,fib:5,f:2.8,cq:9102,kcq:350},
+  {n:"Riz complet (cuit)",cat:"Féculent",p:3.38,c:32.6,fib:2.3,f:1,cq:9103,kcq:158},
+  {n:"Pâtes sèches (crues)",cat:"Féculent",p:12.6,c:65.8,fib:3,f:1.79,cq:9810,kcq:336},
+  {n:"Pâtes sèches (cuites)",cat:"Féculent",p:4.38,c:25,fib:1.9,f:0.55,cq:9811,kcq:126},
+  {n:"Pomme de terre sans peau (crue)",cat:"Féculent",p:2.16,c:16.2,fib:1.8,f:0.18,cq:4008,kcq:80},
+  {n:"Pomme de terre sans peau (rôtie au four)",cat:"Féculent",p:1.96,c:20.1,fib:1.5,f:0.1,cq:4002,kcq:92},
+  {n:"Pomme de terre (cuite)",cat:"Féculent",p:2.01,c:17.2,fib:1.96,f:1.37,cq:4048,kcq:93},
+  {n:"Quinoa (cru)",cat:"Féculent",p:14.1,c:58.1,fib:7,f:6.07,cq:9340,kcq:358},
+  {n:"Quinoa (cuit)",cat:"Féculent",p:5,c:27.9,fib:3.8,f:1.1,cq:9341,kcq:149},
+  {n:"Lentilles (sèches)",cat:"Féculent",p:25.4,c:50.6,fib:7.63,f:1.34,cq:20504,kcq:331},
+  {n:"Lentilles (cuites)",cat:"Féculent",p:9.02,c:12.2,fib:7.9,f:0.38,cq:20505,kcq:104},
+  {n:"Pois chiches (cuits)",cat:"Féculent",p:8.31,c:17.7,fib:8.2,f:3,cq:20507,kcq:147},
+  {n:"Pois chiches (secs)",cat:"Féculent",p:20.5,c:47.5,fib:13.3,f:5.85,cq:20516,kcq:351},
+  {n:"Haricots rouges (cuits)",cat:"Féculent",p:9.63,c:12.3,fib:11.6,f:0.6,cq:20503,kcq:116},
+  {n:"Haricots rouges (secs)",cat:"Féculent",p:22.5,c:46.1,fib:15.2,f:1.06,cq:20525,kcq:314},
+  {n:"Pain, baguette courante",cat:"Féculent",p:9.06,c:58.3,fib:2.7,f:1.4,unitG:30,cq:7001,kcq:287},
+  {n:"Pain complet (farine T150)",cat:"Féculent",p:9.19,c:44.3,fib:6.9,f:1.8,unitG:30,cq:7110,kcq:244},
+  {n:"Flocons d'avoine",cat:"Féculent",p:14.2,c:57.9,fib:10.2,f:6.51,cq:9311,kcq:367},
+  {n:"Graine de couscous (cuite)",cat:"Féculent",p:5,c:31,fib:2.3,f:1,cq:9683,kcq:157},
+  {n:"Graine de couscous (crue)",cat:"Féculent",p:13.2,c:72.7,fib:4.33,f:1.45,cq:9681,kcq:365},
+
+  // Viandes / poissons / œufs
+  {n:"Blanc de poulet, sans peau (cru)",cat:"Viande/poisson/œuf",p:23.4,c:0,fib:0,f:1.5,cq:36017,kcq:110},
+  {n:"Blanc de poulet, sans peau (poêlé)",cat:"Viande/poisson/œuf",p:30.1,c:0,fib:0,f:2,cq:36018,kcq:141},
+  {n:"Escalope de dinde (crue)",cat:"Viande/poisson/œuf",p:24.1,c:0.51,fib:0,f:1.22,cq:36304,kcq:109},
+  {n:"Escalope de dinde (rôtie)",cat:"Viande/poisson/œuf",p:24.6,c:0.5,fib:0,f:3.04,cq:36308,kcq:128},
+  {n:"Steak haché 5% MG (cru)",cat:"Viande/poisson/œuf",p:21.9,c:0.3,fib:0,f:4.59,cq:6250,kcq:130},
+  {n:"Steak haché 5% MG (cuit)",cat:"Viande/poisson/œuf",p:25.5,c:0,fib:0,f:5.85,cq:6251,kcq:155},
+  {n:"Saumon (cru, sauvage)",cat:"Viande/poisson/œuf",p:21,c:0,fib:0,f:9.17,cq:26161,kcq:166},
+  {n:"Saumon (grillé)",cat:"Viande/poisson/œuf",p:25.5,c:0,fib:0,f:13.5,cq:26229,kcq:223},
+  {n:"Saumon (cuit vapeur)",cat:"Viande/poisson/œuf",p:23,c:0,fib:0,f:11.5,cq:26038,kcq:195},
+  {n:"Saumon (cru, élevage)",cat:"Viande/poisson/œuf",p:20.5,c:0,fib:0,f:12.4,cq:26036,kcq:194},
+  {n:"Cabillaud (cru)",cat:"Viande/poisson/œuf",p:18.1,c:0,fib:0,f:0.57,cq:26043,kcq:78},
+  {n:"Cabillaud (rôti au four)",cat:"Viande/poisson/œuf",p:22.3,c:0,fib:0,f:0.6,cq:26023,kcq:95},
+  {n:"Cabillaud (cuit vapeur)",cat:"Viande/poisson/œuf",p:24.5,c:0,fib:0,f:0.95,cq:26025,kcq:106},
+  {n:"Thon au naturel, égoutté (boîte)",cat:"Viande/poisson/œuf",p:26.8,c:0,fib:0,f:0.4,cq:26039,kcq:111},
+  {n:"Thon (cru)",cat:"Viande/poisson/œuf",p:24,c:0,fib:0,f:5.38,cq:26053,kcq:144},
+  {n:"Thon (rôti au four)",cat:"Viande/poisson/œuf",p:29.9,c:0,fib:0,f:1.83,cq:26041,kcq:136},
+  {n:"Œuf (cru)",cat:"Viande/poisson/œuf",p:12.7,c:0.27,fib:0,f:9.83,unitG:50,cq:22000,kcq:140},
+  {n:"Jambon cuit supérieur",cat:"Viande/poisson/œuf",p:20.8,c:0.81,fib:0,f:4.28,unitG:25,cq:28900,kcq:125},
+  {n:"Crevettes (cuites)",cat:"Viande/poisson/œuf",p:19,c:1.87,fib:0,f:1.16,unitG:5,cq:10007,kcq:94},
+  {n:"Crevettes (crue)",cat:"Viande/poisson/œuf",p:19.7,c:3.21,fib:0,f:0.84,unitG:5,cq:10021,kcq:99},
+  {n:"Tofu nature",cat:"Viande/poisson/œuf",p:14.7,c:2.87,fib:0,f:8.5,cq:20904,kcq:148},
+
+  // Viandes — bœuf (CIQUAL ANSES)
+  {n:"Rumsteck de bœuf (cru)",cat:"Viande/poisson/œuf",p:22.5,c:0.4,fib:0,f:2.5,cq:6206,kcq:114},
+  {n:"Rumsteck de bœuf (grillé)",cat:"Viande/poisson/œuf",p:25,c:0,fib:0,f:2.5,cq:6207,kcq:123},
+  {n:"Entrecôte de bœuf (crue)",cat:"Viande/poisson/œuf",p:19.4,c:0,fib:0,f:17.1,cq:6103,kcq:231},
+  {n:"Bavette d'aloyau de bœuf (crue)",cat:"Viande/poisson/œuf",p:20.4,c:0,fib:0,f:5.67,cq:6212,kcq:133},
+  {n:"Bavette d'aloyau de bœuf (grillée)",cat:"Viande/poisson/œuf",p:25,c:0,fib:0,f:6.94,cq:6211,kcq:162},
+  {n:"Faux-filet de bœuf (cru)",cat:"Viande/poisson/œuf",p:22.3,c:0.6,fib:0,f:6.74,cq:6111,kcq:152},
+  {n:"Faux-filet de bœuf (grillé)",cat:"Viande/poisson/œuf",p:27.1,c:0,fib:0,f:8.17,cq:6110,kcq:182},
+  {n:"Faux-filet de bœuf (rôti)",cat:"Viande/poisson/œuf",p:28.8,c:0,fib:0,f:8.71,cq:6105,kcq:194},
+  {n:"Onglet de bœuf (cru)",cat:"Viande/poisson/œuf",p:19.9,c:0.62,fib:0,f:6.18,cq:6204,kcq:138},
+  {n:"Onglet de bœuf (grillé)",cat:"Viande/poisson/œuf",p:23,c:0,fib:0,f:8.8,cq:6205,kcq:171},
+  {n:"Paleron de bœuf (cru)",cat:"Viande/poisson/œuf",p:21.2,c:0,fib:0,f:6.54,cq:6270,kcq:144},
+  {n:"Paleron de bœuf (braisé)",cat:"Viande/poisson/œuf",p:36.8,c:0.2,fib:0,f:11.4,cq:6271,kcq:251},
+  {n:"Filet de bœuf / tournedos (cru)",cat:"Viande/poisson/œuf",p:21.6,c:0.22,fib:0,f:4.95,cq:6116,kcq:132},
+  {n:"Tende de tranche de bœuf (crue)",cat:"Viande/poisson/œuf",p:23.1,c:0.57,fib:0,f:2.34,cq:6160,kcq:116},
+  {n:"Tende de tranche de bœuf (grillée)",cat:"Viande/poisson/œuf",p:28.7,c:0,fib:0,f:2.92,cq:6161,kcq:141},
+
+  // Viandes — porc (CIQUAL ANSES / INAPORC)
+  {n:"Échine de porc (crue)",cat:"Viande/poisson/œuf",p:18,c:0.1,fib:0,f:14,cq:28302,kcq:198},
+  {n:"Épaule de porc (cuite)",cat:"Viande/poisson/œuf",p:30,c:0,fib:0,f:14.8,cq:28010,kcq:253},
+  {n:"Épaule de porc (crue)",cat:"Viande/poisson/œuf",p:18.9,c:0.38,fib:0,f:11.2,cq:28001,kcq:178},
+  {n:"Côte de porc (crue)",cat:"Viande/poisson/œuf",p:19.8,c:0.38,fib:0,f:9.3,cq:28100,kcq:164},
+  {n:"Côte de porc (grillée)",cat:"Viande/poisson/œuf",p:29.6,c:0,fib:0,f:10.3,cq:28101,kcq:211},
+  {n:"Filet mignon de porc (cru)",cat:"Viande/poisson/œuf",p:21.2,c:0.4,fib:0,f:4.09,cq:28204,kcq:123},
+  {n:"Filet mignon de porc (cuit)",cat:"Viande/poisson/œuf",p:26.1,c:0,fib:0,f:7.1,cq:28203,kcq:168},
+  {n:"Escalope de jambon de porc (cuite)",cat:"Viande/poisson/œuf",p:36,c:0,fib:0,f:6.2,cq:28461,kcq:200},
+  {n:"Escalope de jambon de porc (crue)",cat:"Viande/poisson/œuf",p:21.5,c:0,fib:0,f:4.76,cq:28460,kcq:129},
+
+  // Viandes — veau (CIQUAL ANSES)
+  {n:"Escalope de veau (crue)",cat:"Viande/poisson/œuf",p:20.7,c:0.58,fib:0,f:2.6,cq:6521,kcq:108},
+  {n:"Escalope de veau (cuite)",cat:"Viande/poisson/œuf",p:31,c:0,fib:0,f:2.5,cq:6520,kcq:147},
+  {n:"Côte de veau (crue)",cat:"Viande/poisson/œuf",p:18.3,c:0,fib:0,f:12.9,cq:6510,kcq:189},
+  {n:"Côte de veau (grillée)",cat:"Viande/poisson/œuf",p:25.1,c:0,fib:0,f:6.24,cq:6511,kcq:156},
+
+  // Viandes — agneau (CIQUAL ANSES)
+  {n:"Gigot d'agneau (cru)",cat:"Viande/poisson/œuf",p:20,c:0.48,fib:0,f:5.13,cq:21502,kcq:128},
+  {n:"Gigot d'agneau (rôti)",cat:"Viande/poisson/œuf",p:26.8,c:0,fib:0,f:6.85,cq:21503,kcq:169},
+  {n:"Côte filet d'agneau (crue)",cat:"Viande/poisson/œuf",p:17.6,c:2.3,fib:0,f:18,cq:21516,kcq:242},
+  {n:"Côte filet d'agneau (grillée)",cat:"Viande/poisson/œuf",p:26.3,c:0,fib:0,f:5.78,cq:21509,kcq:157},
+  {n:"Épaule d'agneau (crue)",cat:"Viande/poisson/œuf",p:18.3,c:0.45,fib:0,f:10.6,cq:21504,kcq:170},
+  {n:"Collier d'agneau (cru)",cat:"Viande/poisson/œuf",p:18,c:0,fib:0,f:13.7,cq:21514,kcq:195},
+  {n:"Collier d'agneau (braisé)",cat:"Viande/poisson/œuf",p:33.6,c:0,fib:0,f:25.6,cq:21508,kcq:365},
+
+  // Viandes — mouton (CIQUAL ANSES)
+  {n:"Mouton, viande (crue)",cat:"Viande/poisson/œuf",p:20.6,c:0,fib:0,f:6.11,cq:21001,kcq:137},
+  {n:"Gigot de mouton (cru)",cat:"Viande/poisson/œuf",p:18,c:0,fib:0,f:17,cq:21006,kcq:225},
+  {n:"Côtelette d'agneau (crue)",cat:"Viande/poisson/œuf",p:14.4,c:0,fib:0,f:34.5,cq:21500,kcq:368},
+  {n:"Côtelette d'agneau (grillée)",cat:"Viande/poisson/œuf",p:25.7,c:0,fib:0,f:15.2,cq:21501,kcq:240},
+
+  // Viandes — volailles : poulet, dinde, canard (CIQUAL ANSES)
+  {n:"Cuisse de poulet, viande seule (crue)",cat:"Viande/poisson/œuf",p:19.3,c:0,fib:0,f:4.05,cq:36024,kcq:114},
+  {n:"Cuisse de poulet, viande seule (cuit à l'eau)",cat:"Viande/poisson/œuf",p:24.8,c:0.7,fib:0,f:9.52,cq:36030,kcq:188},
+  {n:"Cuisse de poulet, avec peau (crue)",cat:"Viande/poisson/œuf",p:17.3,c:0,fib:0,f:13.5,cq:36002,kcq:192},
+  {n:"Cuisse de poulet, avec peau (rôtie au four)",cat:"Viande/poisson/œuf",p:25.9,c:2,fib:0,f:11.3,cq:36004,kcq:213},
+  {n:"Cuisse de poulet, viande seule (rôtie)",cat:"Viande/poisson/œuf",p:24.8,c:0,fib:0,f:8.03,cq:36006,kcq:171},
+  {n:"Pilon de poulet (cru)",cat:"Viande/poisson/œuf",p:18.4,c:0,fib:0,f:9.05,cq:36022,kcq:155},
+  {n:"Aile de poulet, avec peau (crue)",cat:"Viande/poisson/œuf",p:20.4,c:0,fib:0,f:11,cq:36023,kcq:181},
+  {n:"Aile de poulet, avec peau (rôti au four)",cat:"Viande/poisson/œuf",p:23.8,c:0,fib:0,f:16.9,cq:36033,kcq:247},
+  {n:"Poulet entier, viande et peau (rôti)",cat:"Viande/poisson/œuf",p:28.9,c:2.1,fib:0,f:9.88,cq:36005,kcq:213},
+  {n:"Poulet entier, viande et peau (cru)",cat:"Viande/poisson/œuf",p:20.2,c:0.3,fib:0,f:10.1,cq:36016,kcq:173},
+  {n:"Cuisse de dinde, sans peau (crue)",cat:"Viande/poisson/œuf",p:21.3,c:0.4,fib:0,f:2.5,cq:36307,kcq:109},
+  {n:"Dinde, viande (rôtie)",cat:"Viande/poisson/œuf",p:29.1,c:0,fib:0,f:3.84,cq:36302,kcq:151},
+  {n:"Dinde, viande (crue)",cat:"Viande/poisson/œuf",p:22.4,c:0.8,fib:0,f:1.88,cq:36301,kcq:110},
+  {n:"Magret de canard, avec peau (cru)",cat:"Viande/poisson/œuf",p:17.9,c:0.85,fib:0,f:29.4,cq:36206,kcq:340},
+  {n:"Magret de canard, avec peau (grillé)",cat:"Viande/poisson/œuf",p:26.7,c:0,fib:0,f:12.8,cq:36205,kcq:222},
+  {n:"Cuisse de canard, avec peau (crue)",cat:"Viande/poisson/œuf",p:18.7,c:0,fib:0,f:3.1,cq:36203,kcq:103},
+  {n:"Confit de canard",cat:"Viande/poisson/œuf",p:25.7,c:0.15,fib:0.4,f:18.8,cq:8110,kcq:273},
+  {n:"Canard, viande et peau (rôti)",cat:"Viande/poisson/œuf",p:19,c:0,fib:0,f:28.4,cq:36200,kcq:331},
+  {n:"Canard, viande et peau (cru)",cat:"Viande/poisson/œuf",p:17.4,c:2.75,fib:0,f:22.6,cq:36204,kcq:284},
+
+  // Poissons — par espèce (CIQUAL ANSES), filets crus sauf mention contraire
+  {n:"Thon albacore (cru)",cat:"Viande/poisson/œuf",p:25,c:0,fib:0,f:0.94,cq:26064,kcq:108},
+  {n:"Thon rouge (cru)",cat:"Viande/poisson/œuf",p:23.3,c:0,fib:0,f:6.81,cq:26069,kcq:155},
+  {n:"Truite arc-en-ciel (crue, élevage)",cat:"Viande/poisson/œuf",p:19,c:0,fib:0,f:6.24,cq:27009,kcq:132},
+  {n:"Colin / Lieu noir (cru)",cat:"Viande/poisson/œuf",p:18.8,c:0,fib:0,f:0.8,cq:26134,kcq:82},
+  {n:"Colin / Lieu noir (cuit)",cat:"Viande/poisson/œuf",p:23.1,c:0,fib:0,f:0.81,cq:26015,kcq:100},
+  {n:"Lieu jaune (cru)",cat:"Viande/poisson/œuf",p:17.7,c:0,fib:0,f:0.51,cq:26129,kcq:76},
+  {n:"Dorade royale (crue, sauvage)",cat:"Viande/poisson/œuf",p:18.1,c:0,fib:0,f:2.31,cq:26080,kcq:93},
+  {n:"Bar / Loup de mer (cru)",cat:"Viande/poisson/œuf",p:16.6,c:0,fib:0,f:2.61,cq:26075,kcq:90},
+  {n:"Sole (crue)",cat:"Viande/poisson/œuf",p:18,c:0,fib:0,f:0.6,cq:26058,kcq:77},
+  {n:"Sardine (crue)",cat:"Viande/poisson/œuf",p:19.5,c:0,fib:0,f:9.48,cq:26065,kcq:163},
+  {n:"Sardine (grillée)",cat:"Viande/poisson/œuf",p:25.1,c:0,fib:0,f:10.4,cq:26136,kcq:194},
+  {n:"Maquereau (cru)",cat:"Viande/poisson/œuf",p:18.1,c:0,fib:0,f:13.5,cq:26051,kcq:194},
+  {n:"Maquereau (rôti au four)",cat:"Viande/poisson/œuf",p:21.5,c:0,fib:0,f:15.8,cq:26019,kcq:228},
+  {n:"Hareng (cru)",cat:"Viande/poisson/œuf",p:17.7,c:0,fib:0,f:11.7,cq:26011,kcq:176},
+  {n:"Hareng (grillé)",cat:"Viande/poisson/œuf",p:21.6,c:0,fib:0,f:11.4,cq:26014,kcq:189},
+  {n:"Anchois commun (cru)",cat:"Viande/poisson/œuf",p:18.6,c:0,fib:0,f:6.07,cq:26079,kcq:129},
+  {n:"Merlu (cru)",cat:"Viande/poisson/œuf",p:17.6,c:0,fib:0,f:1.35,cq:26044,kcq:83},
+  {n:"Merlu (cuit à l'étouffée)",cat:"Viande/poisson/œuf",p:21.2,c:0,fib:0,f:3,cq:26120,kcq:112},
+  {n:"Rouget-barbet de roche (cru)",cat:"Viande/poisson/œuf",p:18.4,c:0,fib:0,f:9.37,cq:26085,kcq:158},
+  {n:"Raie (crue)",cat:"Viande/poisson/œuf",p:21.4,c:0,fib:0,f:0.47,cq:26052,kcq:90},
+  {n:"Raie (rôtie au four)",cat:"Viande/poisson/œuf",p:23,c:0,fib:0,f:0.5,cq:26031,kcq:96},
+  {n:"Flétan de l'Atlantique (cru)",cat:"Viande/poisson/œuf",p:21.2,c:0,fib:0,f:1.31,cq:26009,kcq:96},
+  {n:"Turbot (cru)",cat:"Viande/poisson/œuf",p:17.9,c:0,fib:0,f:1.55,cq:26174,kcq:86},
+  {n:"Turbot (rôti au four)",cat:"Viande/poisson/œuf",p:21.3,c:0,fib:0,f:3.64,cq:26094,kcq:118},
+  {n:"Églefin (cru)",cat:"Viande/poisson/œuf",p:17.3,c:0,fib:0,f:0.35,cq:26122,kcq:72},
+  {n:"Églefin (grillé)",cat:"Viande/poisson/œuf",p:20,c:0,fib:0,f:0.55,cq:26126,kcq:85},
+  {n:"Lotte / Baudroie (crue)",cat:"Viande/poisson/œuf",p:15.1,c:0,fib:0,f:0.74,cq:26018,kcq:67},
+  {n:"Lotte / Baudroie (grillée)",cat:"Viande/poisson/œuf",p:23,c:0,fib:0,f:0.68,cq:26081,kcq:98},
+  {n:"Carrelet / Plie (crue)",cat:"Viande/poisson/œuf",p:20,c:0,fib:0,f:0.94,cq:26055,kcq:89},
+  {n:"Carrelet / Plie (cuit à la vapeur)",cat:"Viande/poisson/œuf",p:19,c:0,fib:0,f:1.89,cq:26003,kcq:93},
+  {n:"Espadon (cru)",cat:"Viande/poisson/œuf",p:18.9,c:0,fib:0,f:5.97,cq:26082,kcq:130},
+  {n:"Espadon (rôti au four)",cat:"Viande/poisson/œuf",p:28.7,c:0,fib:0,f:16.9,cq:26093,kcq:266},
+
+  // Fruits de mer — équivalent poids/pièce quand pertinent
+  {n:"Moule (cuite à l'eau)",cat:"Viande/poisson/œuf",p:17.2,c:5.12,fib:0,f:2.09,unitG:3,cq:10013,kcq:108},
+  {n:"Moule (crue)",cat:"Viande/poisson/œuf",p:11.2,c:2.69,fib:0,f:1.82,cq:10014,kcq:72},
+  {n:"Huître creuse (crue)",cat:"Viande/poisson/œuf",p:8.64,c:3.86,fib:0,f:1.91,unitG:10,cq:10035,kcq:67},
+  {n:"Praire / Palourde (cuite à l'eau)",cat:"Viande/poisson/œuf",p:16.2,c:5.33,fib:0,f:1.48,unitG:4,cq:10027,kcq:99},
+  {n:"Praire / Palourde (cru)",cat:"Viande/poisson/œuf",p:11.5,c:2.66,fib:0,f:2.65,unitG:4,cq:10017,kcq:80},
+  {n:"Coquille Saint-Jacques, noix (crue)",cat:"Viande/poisson/œuf",p:17.9,c:1.15,fib:0,f:0.84,unitG:20,cq:10045,kcq:84},
+  {n:"Calamar / Encornet (cru)",cat:"Viande/poisson/œuf",p:14.4,c:2.17,fib:0,f:1.19,cq:10001,kcq:77},
+  {n:"Calamar / Encornet (cuit à l'eau)",cat:"Viande/poisson/œuf",p:32.5,c:1.64,fib:0,f:1.4,cq:10037,kcq:149},
+  {n:"Poulpe (cru)",cat:"Viande/poisson/œuf",p:12.9,c:0.97,fib:0,f:0.5,cq:10018,kcq:60},
+  {n:"Poulpe (cuit)",cat:"Viande/poisson/œuf",p:29.8,c:4.4,fib:0,f:2.08,cq:10079,kcq:156},
+  {n:"Seiche (crue)",cat:"Viande/poisson/œuf",p:16.2,c:0.51,fib:0,f:1.05,cq:10016,kcq:76},
+  {n:"Langoustine (crue)",cat:"Viande/poisson/œuf",p:19.1,c:1.53,fib:0,f:0.79,unitG:12,cq:10024,kcq:90},
+  {n:"Crabe / Tourteau (cuit à l'eau)",cat:"Viande/poisson/œuf",p:19.5,c:1.79,fib:0,f:4.29,cq:10025,kcq:124},
+  {n:"Homard (cuit à l'eau)",cat:"Viande/poisson/œuf",p:19.6,c:0.11,fib:0,f:1.32,cq:10009,kcq:91},
+  {n:"Homard (cru)",cat:"Viande/poisson/œuf",p:17.9,c:0.94,fib:0,f:1.15,cq:10010,kcq:86},
+  {n:"Bulot / Buccin (cuit)",cat:"Viande/poisson/œuf",p:20.7,c:2.69,fib:0,f:0.47,unitG:5,cq:10020,kcq:98},
+  {n:"Bulot / Buccin (cru)",cat:"Viande/poisson/œuf",p:23.8,c:7.61,fib:0,f:0.57,unitG:5,cq:10019,kcq:131},
+  {n:"Bigorneau (cuit)",cat:"Viande/poisson/œuf",p:16.3,c:0,fib:0,f:3.5,unitG:0.5,cq:10000,kcq:97},
+
+  // Laitiers
+  {n:"Lait demi-écrémé UHT",cat:"Laitier",p:3.31,c:4.83,fib:0,f:1.55,isLiquid:true,cq:19041,kcq:47},
+  {n:"Yaourt nature au lait entier",cat:"Laitier",p:3.77,c:3.47,fib:0,f:3.6,unitG:125,cq:19546,kcq:64},
+  {n:"Fromage blanc nature 0% MG",cat:"Laitier",p:7.78,c:3.89,fib:0,f:0.04,cq:19644,kcq:49},
+  {n:"Emmental",cat:"Laitier",p:27.3,c:0,fib:0,f:28.8,cq:12115,kcq:373},
+  {n:"Camembert au lait cru",cat:"Laitier",p:20.3,c:0,fib:0,f:20.3,cq:12006,kcq:267},
+
+  // Matières grasses
+  {n:"Huile d'olive vierge extra",cat:"Matière grasse",p:0,c:0,fib:0,f:99.9,isLiquid:true,cq:17270,kcq:900},
+  {n:"Beurre 82% MG doux",cat:"Matière grasse",p:0.69,c:0.9,fib:0,f:82.9,cq:16400,kcq:753},
+  {n:"Amande (avec peau)",cat:"Matière grasse",p:22.6,c:9.51,fib:12.5,f:51.3,cq:15000,kcq:615},
+  {n:"Noix (cerneaux)",cat:"Matière grasse",p:15.7,c:6.88,fib:6.7,f:67.3,cq:15005,kcq:709},
+  {n:"Beurre de cacahuète",cat:"Matière grasse",p:25.4,c:16.1,fib:5,f:52.5,cq:15202,kcq:648},
+
+  // Autres
+  {n:"Chocolat noir 70%",cat:"Autre",p:10.4,c:26.9,fib:12.8,f:46.3,cq:31074,kcq:591},
+  {n:"Miel",cat:"Autre",p:0.56,c:81.7,fib:0,f:0,cq:31008,kcq:329},
+  {n:"Sucre blanc",cat:"Autre",p:0,c:99.8,fib:0,f:0,cq:31016,kcq:399},
 ];
 
 /* MET = équivalent métabolique (Compendium of Physical Activities,
@@ -1031,9 +1142,27 @@ function fmtFR(dateStr){
 function frNum(n, decimals=1){
   return n.toLocaleString('fr-FR',{minimumFractionDigits:decimals, maximumFractionDigits:decimals});
 }
+/* Objectifs enregistrés avant l'introduction des fibres : leur ligne
+   "glucides" incluait implicitement les fibres, comptées à 4 kcal/g.
+   On réserve 30 g de fibres (60 kcal) et on rend à la ligne glucides
+   uniquement ce qui reste, à protéines et lipides inchangés. Le total
+   calorique, lui, ne bouge pas d'un kcal. */
+const DEFAULT_FIB_GOAL = 30;
+async function migrateGoalsToFiber(){
+  let changed = false;
+  for(const g of state.goals){
+    if(g.fib !== undefined) continue;
+    g.fib = DEFAULT_FIB_GOAL;
+    g.carb = Math.max(0, Math.round((g.kcal - 4*g.prot - 9*g.fat - KCAL_PER_G.fib*g.fib)/4));
+    await _rawPut('goals', g);
+    changed = true;
+  }
+  if(changed) setTimeout(()=> toast('Objectifs convertis : une ligne Fibres a été ajoutée'), 900);
+}
+
 function currentGoal(dateStr){
   const sorted = [...state.goals].sort((a,b)=>a.from.localeCompare(b.from));
-  let g = {kcal:2000,prot:100,carb:250,fat:65};
+  let g = {kcal:2000,prot:100,carb:235,fat:65,fib:30};
   for(const item of sorted){ if(item.from<=dateStr) g=item; else break; }
   return g;
 }
@@ -1078,8 +1207,9 @@ async function init(){
     const m = await idbGet('meta','settings');
     if(m) state.meta = Object.assign(state.meta, m.value);
     const goals = await idbAll('goals');
-    state.goals = goals.length? goals : [{from:'0000-00-00', kcal:2000, prot:100, carb:250, fat:65}];
+    state.goals = goals.length? goals : [{from:'0000-00-00', kcal:2000, prot:100, carb:235, fat:65, fib:30}];
     if(!goals.length) await _rawPut('goals', state.goals[0]);
+    await migrateGoalsToFiber();
     state.customFoods = await idbAll('customFoods');
     await initCloudSync();
   }catch(e){
@@ -1112,8 +1242,13 @@ async function renderAll(){
   const day = await getDay(state.currentDate);
   const goal = currentGoal(state.currentDate);
 
-  let eaten = {k:0,p:0,c:0,f:0};
-  day.meals.forEach(m=>{eaten.k+=m.k; eaten.p+=m.p; eaten.c+=m.c; eaten.f+=m.f;});
+  let eaten = {k:0,p:0,c:0,f:0,fib:0};
+  day.meals.forEach(m=>{
+    eaten.p+=m.p; eaten.c+=m.c; eaten.f+=m.f; eaten.fib+=(m.fib||0);
+    // v:2 = entrée en convention UE, énergie recalculée.
+    // Sans le flag, c'est une entrée d'avant la bascule : on garde sa valeur d'époque.
+    eaten.k += (m.v===2) ? kcalFrom(m) : m.k;
+  });
   let burned = day.exercises.reduce((s,e)=>s+e.kcal,0);
 
   const budget = goal.kcal + burned;
@@ -1137,6 +1272,7 @@ async function renderAll(){
     {label:'Protéines', val:eaten.p, goal:goal.prot, color:'var(--forest)'},
     {label:'Glucides', val:eaten.c, goal:goal.carb, color:'var(--gold)'},
     {label:'Lipides', val:eaten.f, goal:goal.fat, color:'var(--over)'},
+    {label:'Fibres', val:eaten.fib, goal:goal.fib||DEFAULT_FIB_GOAL, color:'var(--water)'},
   ];
   macros.forEach(m=>{
     const p = Math.max(0, Math.min(1, m.goal? m.val/m.goal : 0));
@@ -1178,6 +1314,7 @@ async function renderAll(){
   document.getElementById('setProt').value = goal.prot;
   document.getElementById('setCarb').value = goal.carb;
   document.getElementById('setFat').value = goal.fat;
+  document.getElementById('setFib').value = goal.fib ?? DEFAULT_FIB_GOAL;
   lastKcalInputValue = goal.kcal;
   document.getElementById('setWeight').value = state.meta.weightKg;
   document.getElementById('setAge').value = state.meta.age||'';
@@ -1189,19 +1326,28 @@ async function renderAll(){
   renderGoalHistory();
   renderSuggestSplit(goal.kcal);
   renderMacroBalanceMsg();
+  renderFibSuggestion();
   renderBMRSuggestion();
   renderExportReminder();
 }
 
 function renderSuggestSplit(kcal){
-  const p = Math.round(kcal*0.15/4), c = Math.round(kcal*0.50/4), f = Math.round(kcal*0.30/9);
-  document.getElementById('suggestSplit').textContent = `Repère OMS pour ${kcal} kcal : ≈ ${p} g protéines · ${c} g glucides · ${f} g lipides.`;
+  // Les repères OMS/Anses portent sur les glucides hors fibres,
+  // les fibres faisant l'objet d'une recommandation séparée (30 g/j).
+  const fibG = parseFloat(document.getElementById('setFib').value) || DEFAULT_FIB_GOAL;
+  const dispo = Math.max(0, kcal - fibG*KCAL_PER_G.fib);
+  const p = Math.round(dispo*0.17/4), c = Math.round(dispo*0.48/4), f = Math.round(dispo*0.35/9);
+  document.getElementById('suggestSplit').textContent = `Repère pour ${kcal} kcal : ≈ ${p} g protéines · ${c} g glucides (hors fibres) · ${f} g lipides · ${fibG} g fibres.`;
 }
 
 function renderMacroBalanceMsg(){
   const kcalTarget = parseFloat(document.getElementById('setKcal').value)||0;
   const total = kcalFromCurrentInputs();
-  document.getElementById('macroBalanceMsg').textContent = `Total macros actuel : ${Math.round(total)} kcal (objectif ${Math.round(kcalTarget)} kcal).`;
+  renderFibSuggestion();
+  const ecart = Math.round(total - kcalTarget);
+  document.getElementById('macroBalanceMsg').textContent =
+    `Total macros actuel : ${Math.round(total)} kcal, fibres comprises (objectif ${Math.round(kcalTarget)} kcal)`
+    + (ecart === 0 ? '. Les deux coïncident.' : `. Écart de ${ecart>0?'+':''}${ecart} kcal.`);
 }
 
 /* ============================================================
@@ -1232,6 +1378,50 @@ function renderExportReminder(){
   el.className = 'tag-goalhist' + (d>=7 ? ' warn' : '');
 }
 
+/* ============================================================
+   OBJECTIF FIBRES — références publiées
+   - Anses, décembre 2016 (actualisation des repères du PNNS) :
+     apport satisfaisant de 30 g/jour chez l'adulte, bénéfices
+     observés dès 25 g/j et plus nets à 30 g/j.
+   - EFSA, 2010 : 25 g/jour suffisent au bon fonctionnement intestinal.
+   - Institute of Medicine (DRI, 2002) : 14 g pour 1 000 kcal, ce qui
+     permet de mettre l'objectif à l'échelle de l'apport énergétique.
+   - Limite haute usuellement conseillée chez l'adulte : 40 g/jour.
+   30 g est retenu par défaut : c'est la référence française, et elle
+   se situe dans la fourchette des trois autres.
+   ============================================================ */
+const FIB_REF = {anses:30, efsaFloor:25, perKcal:14/1000, ceiling:40};
+
+function renderFibSuggestion(){
+  const el = document.getElementById('fibSuggestion');
+  if(!el) return;
+  const kcal = parseFloat(document.getElementById('setKcal').value)||0;
+  const actuel = parseFloat(document.getElementById('setFib').value)||0;
+  const echelle = Math.round(kcal*FIB_REF.perKcal);
+
+  let msg = `Références : <b>Anses ${FIB_REF.anses} g/j</b> (apport satisfaisant, adulte) · EFSA ${FIB_REF.efsaFloor} g/j (plancher) · IOM ${echelle} g/j à ton niveau calorique (14 g / 1 000 kcal).`;
+  el.classList.remove('warn');
+  if(actuel && actuel < FIB_REF.efsaFloor){
+    msg += `<br>Ton objectif de ${actuel} g est sous le plancher de ${FIB_REF.efsaFloor} g/j.`;
+    el.classList.add('warn');
+  }else if(actuel > FIB_REF.ceiling){
+    msg += `<br>Au-delà de ${FIB_REF.ceiling} g/j, l'inconfort digestif et la baisse d'absorption des minéraux deviennent probables.`;
+    el.classList.add('warn');
+  }
+  const cibles = [...new Set([FIB_REF.anses, echelle])].filter(v=>v>0 && v!==actuel).sort((a,b)=>a-b);
+  if(cibles.length){
+    msg += '<br>' + cibles.map(v=>`<button class="btn secondary fib-apply" data-g="${v}" style="margin-top:8px;">Utiliser ${v} g</button>`).join(' ');
+  }
+  el.innerHTML = msg;
+  el.querySelectorAll('.fib-apply').forEach(b=>{
+    b.onclick = ()=>{
+      document.getElementById('setFib').value = b.dataset.g;
+      rebalanceMacros('fib');       // le total calorique ne bouge pas
+      renderFibSuggestion();
+    };
+  });
+}
+
 function renderBMRSuggestion(){
   const bmr = calcBMR();
   const el = document.getElementById('bmrSuggestion');
@@ -1250,7 +1440,14 @@ function kcalFromCurrentInputs(){
   const p=parseFloat(document.getElementById('setProt').value)||0;
   const c=parseFloat(document.getElementById('setCarb').value)||0;
   const f=parseFloat(document.getElementById('setFat').value)||0;
-  return p*4+c*4+f*9;
+  const fib=parseFloat(document.getElementById('setFib').value)||0;
+  return kcalFrom({p, c, f, fib});
+}
+
+// Calories réservées aux fibres. Elles sortent de l'enveloppe avant
+// répartition P/G/L, mais elles restent dans le total affiché.
+function fibKcalGoal(){
+  return (parseFloat(document.getElementById('setFib').value)||0) * KCAL_PER_G.fib;
 }
 
 function setKcalAndScale(newKcal){
@@ -1263,10 +1460,15 @@ function setKcalAndScale(newKcal){
 }
 
 function scaleMacrosToKcal(oldTotal, newTarget){
+  // Les fibres ne se remettent pas à l'échelle avec les calories :
+  // 30 g/jour reste 30 g qu'on mange 1800 ou 2600 kcal.
+  const fibKcal = fibKcalGoal();
+  newTarget = Math.max(0, newTarget - fibKcal);
+  oldTotal = Math.max(0, oldTotal - fibKcal);
   if(!oldTotal || oldTotal<=0){
-    document.getElementById('setProt').value = Math.round(newTarget*0.15/4);
-    document.getElementById('setCarb').value = Math.round(newTarget*0.50/4);
-    document.getElementById('setFat').value = Math.round(newTarget*0.30/9);
+    document.getElementById('setProt').value = Math.round(newTarget*0.18/4);
+    document.getElementById('setCarb').value = Math.round(newTarget*0.47/4);
+    document.getElementById('setFat').value = Math.round(newTarget*0.35/9);
     return;
   }
   const factor = newTarget/oldTotal;
@@ -1286,8 +1488,10 @@ function rebalanceMacros(editedKey){
     fat: parseFloat(document.getElementById('setFat').value)||0,
   };
   const otherKeys = Object.keys(vals).filter(k=>k!==editedKey);
-  const editedKcal = vals[editedKey]*kPerG[editedKey];
-  let remaining = kcalTarget - editedKcal;
+  // editedKey peut valoir 'fib' : les fibres ne participent pas au partage,
+  // leurs calories sont déjà retirées de l'enveloppe juste en dessous.
+  const editedKcal = (vals[editedKey]||0)*(kPerG[editedKey]||0);
+  let remaining = kcalTarget - fibKcalGoal() - editedKcal;
   if(remaining<0) remaining = 0;
   const otherTotalKcal = otherKeys.reduce((s,k)=>s+vals[k]*kPerG[k],0);
   if(otherTotalKcal<=0){
@@ -1318,7 +1522,7 @@ function renderGoalHistory(){
       endLabel = ' — actuel';
     }
     const el = document.createElement('div'); el.className='tag-goalhist'+(isLast?' current':'');
-    el.textContent = `${startLabel}${endLabel} — ${g.kcal} kcal (P ${g.prot}g · G ${g.carb}g · L ${g.fat}g)`;
+    el.textContent = `${startLabel}${endLabel} — ${g.kcal} kcal (P ${g.prot}g · G ${g.carb}g · L ${g.fat}g · F ${g.fib ?? DEFAULT_FIB_GOAL}g)`;
     wrap.appendChild(el);
   });
 }
@@ -1343,10 +1547,13 @@ function searchFoods(q){
 function selectFood(food, fromScan=false){
   state.pendingFood = {
     name: food.n,
-    k:food.k,p:food.p,c:food.c,f:food.f,
+    p:food.p, c:food.c, f:food.f, fib:food.fib||0,
     unitG: food.unitG || null,
     isLiquid: !!food.isLiquid,
     fromScan: !!fromScan,
+    kLabel: food.kLabel ?? null,   // énergie imprimée sur l'emballage, si scan
+    cq: food.cq || null,           // code Ciqual, pour retrouver la fiche source
+    kcq: food.kcq || null,         // énergie publiée par l'Anses, pour contrôle
   };
   document.getElementById('foodResults').classList.add('hidden');
   document.getElementById('foodSearchPane').classList.add('hidden');
@@ -1354,7 +1561,25 @@ function selectFood(food, fromScan=false){
   document.getElementById('foodCustomPane').classList.add('hidden');
   document.getElementById('foodSelected').classList.remove('hidden');
 
-  document.getElementById('foodPreview').innerHTML = `<b>${food.n}</b> — pour 100${food.isLiquid?'ml':'g'} : ${food.k} kcal · P ${food.p}g · G ${food.c}g · L ${food.f}g`;
+  const k100 = Math.round(kcalFrom(food));
+  let preview = `<b>${food.n}</b> — pour 100${food.isLiquid?'ml':'g'} : ${k100} kcal · P ${food.p}g · G ${food.c}g · F ${food.fib||0}g · L ${food.f}g`;
+  // Un écart avec l'étiquette signale en général des polyols, de l'alcool,
+  // ou des glucides déclarés à l'américaine (fibres incluses).
+  if(food.kLabel && Math.abs(food.kLabel-k100) > Math.max(8, k100*0.05)){
+    preview += `<br><span style="color:var(--gold)">Étiquette : ${Math.round(food.kLabel)} kcal, soit ${Math.round(food.kLabel-k100)>0?'+':''}${Math.round(food.kLabel-k100)} kcal. Vérifie les lignes glucides et fibres.</span>`;
+  }
+  // Aliment Ciqual : on signale l'écart avec l'énergie publiée par l'Anses.
+  // Il vient des acides organiques (3 kcal/g), non suivis par l'appli.
+  if(food.cq){
+    preview += `<br><span style="font-size:11.5px;opacity:.75;">Source : Ciqual ${food.cq} (Anses)`;
+    if(food.kcq && Math.abs(food.kcq-k100) > 5){
+      preview += ` · énergie publiée ${food.kcq} kcal, l'écart de ${Math.round(food.kcq-k100)} kcal vient des acides organiques`;
+    }
+    preview += `</span>`;
+  }else{
+    preview += `<br><span style="font-size:11.5px;opacity:.75;">Source : ${food.fromScan?'Open Food Facts':'saisie manuelle'}, hors table Ciqual</span>`;
+  }
+  document.getElementById('foodPreview').innerHTML = preview;
 
   buildFoodTypeToggle();
   buildFoodUnitToggle();
@@ -1414,9 +1639,10 @@ function updateFoodComputed(){
   if(f.unit==='unit') grams = qty * (f.unitG||100);
   // f.unit==='vol' : qty est déjà en ml, même base que les valeurs nutritionnelles (/100ml)
   const ratio = grams/100;
-  const k = f.k*ratio, p=f.p*ratio, c=f.c*ratio, ff=f.f*ratio;
-  document.getElementById('foodComputed').innerHTML = `<b>${Math.round(k)} kcal</b> — P ${p.toFixed(1)}g · G ${c.toFixed(1)}g · L ${ff.toFixed(1)}g`;
-  f._computed = {k,p,c,f:ff, grams, qty, qtyLabel: f.unit==='unit'? `${qty} unité(s)` : f.unit==='vol' ? `${qty} ml` : `${qty} g`};
+  const p=f.p*ratio, c=f.c*ratio, ff=f.f*ratio, fib=(f.fib||0)*ratio;
+  const k = kcalFrom({p, c, f:ff, fib});
+  document.getElementById('foodComputed').innerHTML = `<b>${Math.round(k)} kcal</b> — P ${p.toFixed(1)}g · G ${c.toFixed(1)}g · F ${fib.toFixed(1)}g · L ${ff.toFixed(1)}g`;
+  f._computed = {k,p,c,f:ff,fib, grams, qty, qtyLabel: f.unit==='unit'? `${qty} unité(s)` : f.unit==='vol' ? `${qty} ml` : `${qty} g`};
 }
 
 /* ============================================================
@@ -1570,10 +1796,16 @@ async function lookupBarcode(code, fromScan=false){
     // Reste modifiable manuellement via le bouton Solide/Liquide si besoin.
     const qtyStr = (data.product.quantity||'').toLowerCase();
     const looksLiquid = /(^|[\s\d])(cl|ml|l)\b/.test(qtyStr) && !/\bkg\b/.test(qtyStr);
+    // Sur un produit vendu en Europe, carbohydrates_100g est déjà un glucide
+    // net (Règlement 1169/2011) : la cohérence est immédiate. kLabel garde
+    // l'énergie imprimée pour pouvoir signaler un écart.
     const food = {
       n: data.product.product_name || 'Produit scanné',
-      k: n['energy-kcal_100g'] ?? Math.round((n['energy_100g']||0)/4.184) ?? 0,
-      p: n.proteins_100g||0, c: n.carbohydrates_100g||0, f: n.fat_100g||0,
+      p: n.proteins_100g||0,
+      c: n.carbohydrates_100g||0,
+      fib: n.fiber_100g||0,
+      f: n.fat_100g||0,
+      kLabel: n['energy-kcal_100g'] ?? (n['energy_100g'] ? n['energy_100g']/4.184 : null),
       unitG:null, isLiquid:looksLiquid,
     };
     selectFood(food, fromScan);
@@ -1592,9 +1824,9 @@ async function saveCustomFood(){
   const food = {
     id: 'cf_'+Date.now(),
     n:name, cat:'Perso',
-    k:parseFloat(document.getElementById('cfKcal').value)||0,
     p:parseFloat(document.getElementById('cfProt').value)||0,
     c:parseFloat(document.getElementById('cfCarb').value)||0,
+    fib:parseFloat(document.getElementById('cfFib').value)||0,
     f:parseFloat(document.getElementById('cfFat').value)||0,
     isLiquid: document.getElementById('cfLiquid').value==='1',
     unitG: parseFloat(document.getElementById('cfUnitG').value)||null,
@@ -1827,7 +2059,7 @@ function bindEvents(){
     const f = state.pendingFood;
     if(!f || !f._computed) return;
     const day = await getDay(state.currentDate);
-    day.meals.push({name:f.name, k:f._computed.k, p:f._computed.p, c:f._computed.c, f:f._computed.f, qtyLabel:f._computed.qtyLabel});
+    day.meals.push({name:f.name, k:f._computed.k, p:f._computed.p, c:f._computed.c, f:f._computed.f, fib:f._computed.fib, qtyLabel:f._computed.qtyLabel, v:2});
     await saveDay(state.currentDate);
     toast('Aliment ajouté');
     if(f.fromScan){
@@ -1915,6 +2147,48 @@ function bindEvents(){
   document.getElementById('setProt').oninput = ()=> rebalanceMacros('prot');
   document.getElementById('setCarb').oninput = ()=> rebalanceMacros('carb');
   document.getElementById('setFat').oninput = ()=> rebalanceMacros('fat');
+  // Modifier les fibres ne change pas le total calorique : on redistribue
+  // simplement l'enveloppe restante entre protéines, glucides et lipides.
+  document.getElementById('setFib').oninput = ()=> rebalanceMacros('fib');
+
+  ['cfProt','cfCarb','cfFib','cfFat'].forEach(id=>{
+    document.getElementById(id).addEventListener('input', ()=>{
+      const k = kcalFrom({
+        p:parseFloat(document.getElementById('cfProt').value)||0,
+        c:parseFloat(document.getElementById('cfCarb').value)||0,
+        fib:parseFloat(document.getElementById('cfFib').value)||0,
+        f:parseFloat(document.getElementById('cfFat').value)||0,
+      });
+      document.getElementById('cfKcalPreview').innerHTML = `<b>${Math.round(k)} kcal</b> /100`;
+    });
+  });
+
+  document.getElementById('dbInfoBtn').onclick = ()=> openInfoModal(
+    'D\'où viennent les valeurs',
+    `<p>Les 281 aliments proviennent de la <b>table Ciqual 2020 de l'Anses</b>, la table de composition nutritionnelle de référence en France, en libre accès sur ciqual.anses.fr. Chaque aliment garde son code Ciqual, affiché au moment de l'ajout, pour que tu puisses retrouver la fiche d'origine.</p>
+     <p>Ciqual applique le <b>Règlement UE N° 1169/2011</b>, celui qui régit les étiquettes vendues en Europe : les glucides y sont déclarés <b>hors fibres</b>, et l'énergie est calculée avec 4 kcal/g pour les protéines et les glucides, 9 pour les lipides et 2 pour les fibres.</p>
+     <p>L'appli recalcule l'énergie à partir de ces mêmes coefficients plutôt que de la stocker. C'est ce qui garantit que ton total calorique et tes macros ne peuvent jamais se contredire.</p>
+     <p>Le règlement prévoit aussi 7 kcal/g pour l'alcool, 3 pour les acides organiques et 2,4 pour les polyols, que l'appli ne suit pas. L'écart avec l'énergie publiée par l'Anses est de <b>1,1 kcal pour 100 g en moyenne</b>, et n'est notable que sur quelques fruits acides (groseille, cassis, jus de citron). Il t'est signalé au moment de l'ajout.</p>
+     <p>Chaque aliment existe en version crue et en version cuite dès que l'Anses publie les deux, avec le mode de cuisson précisé (bouilli, rôti, grillé, poêlé), car il change la teneur en eau et donc les valeurs pour 100 g. Pèse ce que tu cuisines et choisis l'entrée qui correspond au moment où tu as pesé.</p>
+     <p>Les produits scannés viennent d'Open Food Facts et les aliments que tu crées de ta saisie : ils sont identifiés comme tels, hors table Ciqual.</p>`);
+
+  document.getElementById('fibInfoBtn').onclick = ()=> openInfoModal(
+    'Pourquoi une ligne Fibres',
+    `<p>Les fibres sont des glucides que le corps n'assimile que très partiellement. Le Règlement UE 1169/2011, qui régit toutes les étiquettes vendues en Europe, les compte donc à <b>2 kcal/g</b> au lieu de 4, et les exclut de la ligne « glucides ».</p>
+     <p>Cette appli applique la même règle. Ton total calorique est donc réparti ainsi :<br><b>4 × protéines + 4 × glucides + 9 × lipides + 2 × fibres</b></p>
+     <p>Tu ne perds rien au change : avant, tes fibres étaient comptées à 4 kcal/g à l'intérieur de la ligne glucides, donc surévaluées. 30 g de fibres pesaient 120 kcal de ton budget, elles n'en pèsent plus que 60.</p>
+     <p><b>D'où vient l'objectif de 30 g</b><br>
+     C'est l'apport satisfaisant retenu par l'<b>Anses</b> pour l'adulte (rapport de décembre 2016 sur l'actualisation des repères du PNNS). L'agence l'a fixé à 30 g/j parce que la réduction de risque cardiovasculaire, de diabète de type 2 et de cancers colorectaux s'observe parfois dès 25 g/j et de façon plus concordante à 30 g/j.</p>
+     <p>Deux autres repères, affichés sous le champ :<br>
+     · <b>EFSA</b> (2010) : 25 g/j suffisent au bon fonctionnement intestinal chez l'adulte. C'est le plancher.<br>
+     · <b>Institute of Medicine</b> (DRI, 2002) : 14 g pour 1 000 kcal, ce qui met l'objectif à l'échelle de ton apport énergétique.</p>
+     <p>Au-delà de 40 g/j, l'inconfort digestif et la moindre absorption de certains minéraux deviennent probables.</p>
+     <p>Le champ reste libre : modifie-le comme n'importe quelle autre macro, les protéines, glucides et lipides se réajusteront pour conserver ton total calorique.</p>`);
+
+  document.getElementById('cfCarbInfoBtn').onclick = ()=> openInfoModal(
+    'Glucides : quelle valeur recopier',
+    `<p>Sur une étiquette européenne, recopie la ligne <b>« Glucides »</b> telle quelle : les fibres en sont déjà exclues, elles figurent sur leur propre ligne juste en dessous.</p>
+     <p>Sur une étiquette américaine (<i>Total Carbohydrate</i>), les fibres sont au contraire <b>incluses</b> : soustrais la ligne <i>Dietary Fiber</i> avant de saisir.</p>`);
 
   document.getElementById('saveGoalsBtn').onclick = async ()=>{
     const g = {
@@ -1923,6 +2197,7 @@ function bindEvents(){
       prot: parseInt(document.getElementById('setProt').value)||0,
       carb: parseInt(document.getElementById('setCarb').value)||0,
       fat: parseInt(document.getElementById('setFat').value)||0,
+      fib: parseInt(document.getElementById('setFib').value)||0,
     };
     state.goals = state.goals.filter(x=>x.from!==g.from);
     state.goals.push(g);
