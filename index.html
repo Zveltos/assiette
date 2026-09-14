@@ -1604,7 +1604,7 @@ function selectFood(food, fromScan=false){
     }
     preview += `</span>`;
   }else{
-    preview += `<br><span style="font-size:11.5px;opacity:.75;">Source : ${food.fromScan?'Open Food Facts':'saisie manuelle'}, hors table Ciqual</span>`;
+    preview += `<br><span style="font-size:11.5px;opacity:.75;">Source : ${food.source==='off'?'Open Food Facts':'saisie manuelle'}, hors table Ciqual</span>`;
   }
   document.getElementById('foodPreview').innerHTML = preview;
 
@@ -1826,15 +1826,32 @@ async function lookupBarcode(code, fromScan=false){
     // Sur un produit vendu en Europe, carbohydrates_100g est déjà un glucide
     // net (Règlement 1169/2011) : la cohérence est immédiate. kLabel garde
     // l'énergie imprimée pour pouvoir signaler un écart.
+    //
+    // On enregistre aussi le produit comme aliment personnalisé, identifié
+    // par son code-barres : il devient cherchable via "Rechercher" dès la
+    // prochaine fois, pas besoin de re-scanner un produit mangé souvent
+    // (ex : des pâtes qu'on prépare presque tous les jours). Un nouveau
+    // scan du même code-barres met juste à jour la fiche existante (au cas
+    // où Open Food Facts aurait changé) plutôt que de créer un doublon.
+    const existing = state.customFoods.find(cf=>cf.barcode===code);
     const food = {
-      n: data.product.product_name || 'Produit scanné',
+      id: existing ? existing.id : 'cf_off_'+code,
+      barcode: code,
+      source: 'off',
+      cat: 'Scanné',
+      n: data.product.product_name || (existing && existing.n) || 'Produit scanné',
       p: n.proteins_100g||0,
       c: n.carbohydrates_100g||0,
       fib: n.fiber_100g||0,
       f: n.fat_100g||0,
       kLabel: n['energy-kcal_100g'] ?? (n['energy_100g'] ? n['energy_100g']/4.184 : null),
-      unitG:null, isLiquid:looksLiquid,
+      unitG: (existing && existing.unitG) || null,
+      isLiquid: looksLiquid,
     };
+    if(existing) Object.assign(existing, food);
+    else state.customFoods.push(food);
+    await idbPut('customFoods', food);
+    if(!existing) toast('Produit enregistré — retrouvable via "Rechercher" la prochaine fois');
     selectFood(food, fromScan);
   }catch(e){
     toast("Connexion internet requise pour le scan");
