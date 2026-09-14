@@ -254,11 +254,7 @@ footer.credit{text-align:center;font-size:11px;color:var(--ink-soft);opacity:.7;
         <div class="water-body">
           <div class="water-top"><b class="num" id="stepsVal">0</b><span id="stepsGoalTxt">objectif 10 000 pas</span></div>
           <div class="water-track"><div class="water-fill" id="stepsFill" style="width:0%"></div></div>
-          <div class="water-btns">
-            <button class="chip gold" data-steps="1000">+1000</button>
-            <button class="chip gold" data-steps="2000">+2000</button>
-            <button class="chip gold" data-steps="-1000">−1000</button>
-          </div>
+          <p class="desc" style="font-size:11.5px;color:var(--ink-soft);margin:8px 0 0;">Calculés automatiquement à partir des activités de marche/course que tu ajoutes ci-dessous.</p>
         </div>
       </div>
     </section>
@@ -872,17 +868,48 @@ const FOOD_DB = [
 
 /* MET = équivalent métabolique (Compendium of Physical Activities,
    référence en médecine du sport). stepsPerMin permet d'estimer
-   automatiquement le nombre de pas pour les activités de marche/course. */
+   automatiquement le nombre de pas pour les activités de marche/course.
+
+   Pour la marche inclinée, stepsPerMin n'est pas une valeur choisie à la
+   main : elle est calculée pour rester PROPORTIONNELLE à la dépense
+   calorique supplémentaire par rapport à la marche à plat, à vitesse égale
+   (ex : si l'inclinaison fait dépenser 2x plus de kcal/min à 5 km/h, le
+   nombre de pas équivalent comptabilisé est aussi 2x plus élevé que celui
+   de la marche à plat à 5 km/h). Les points de référence à plat (3, 5 et
+   6.5 km/h) viennent des lignes "Marche lente/normale/rapide" ci-dessous ;
+   les vitesses intermédiaires sont interpolées linéairement. */
+const FLAT_WALK_REF = [
+ {kmh:3,   met:2.8, stepsPerMin:85},
+ {kmh:5,   met:3.5, stepsPerMin:105},
+ {kmh:6.5, met:5.0, stepsPerMin:120},
+];
+function flatWalkRefAt(kmh){
+  const pts = FLAT_WALK_REF;
+  if(kmh<=pts[0].kmh) return pts[0];
+  if(kmh>=pts[pts.length-1].kmh) return pts[pts.length-1];
+  for(let i=0;i<pts.length-1;i++){
+    const a=pts[i], b=pts[i+1];
+    if(kmh>=a.kmh && kmh<=b.kmh){
+      const t=(kmh-a.kmh)/(b.kmh-a.kmh);
+      return {met:a.met+t*(b.met-a.met), stepsPerMin:a.stepsPerMin+t*(b.stepsPerMin-a.stepsPerMin)};
+    }
+  }
+  return pts[pts.length-1];
+}
+function inclineStepsPerMin(met, kmh){
+  const ref = flatWalkRefAt(kmh);
+  return Math.round(ref.stepsPerMin * (met/ref.met));
+}
 const MET_DB = [
  {n:"Marche lente (~3 km/h)",met:2.8,stepsPerMin:85,steps:true},
  {n:"Marche normale (~5 km/h)",met:3.5,stepsPerMin:105,steps:true},
  {n:"Marche rapide (~6.5 km/h)",met:5.0,stepsPerMin:120,steps:true},
- {n:"Marche inclinée modérée (5-8% pente, ~4 km/h)",met:5.3,stepsPerMin:95,steps:true},
- {n:"Marche inclinée modérée (5-8% pente, ~5 km/h)",met:6.0,stepsPerMin:110,steps:true},
- {n:"Marche inclinée modérée (5-8% pente, ~6 km/h)",met:7.0,stepsPerMin:120,steps:true},
- {n:"Marche inclinée intense (10-15% pente, ~4 km/h)",met:7.8,stepsPerMin:95,steps:true},
- {n:"Marche inclinée intense (10-15% pente, ~5 km/h)",met:9.0,stepsPerMin:110,steps:true},
- {n:"Marche inclinée intense (10-15% pente, ~6 km/h)",met:10.3,stepsPerMin:120,steps:true},
+ {n:"Marche inclinée modérée (5-8% pente, ~4 km/h)",met:5.3,stepsPerMin:inclineStepsPerMin(5.3,4),steps:true},
+ {n:"Marche inclinée modérée (5-8% pente, ~5 km/h)",met:6.0,stepsPerMin:inclineStepsPerMin(6.0,5),steps:true},
+ {n:"Marche inclinée modérée (5-8% pente, ~6 km/h)",met:7.0,stepsPerMin:inclineStepsPerMin(7.0,6),steps:true},
+ {n:"Marche inclinée intense (10-15% pente, ~4 km/h)",met:7.8,stepsPerMin:inclineStepsPerMin(7.8,4),steps:true},
+ {n:"Marche inclinée intense (10-15% pente, ~5 km/h)",met:9.0,stepsPerMin:inclineStepsPerMin(9.0,5),steps:true},
+ {n:"Marche inclinée intense (10-15% pente, ~6 km/h)",met:10.3,stepsPerMin:inclineStepsPerMin(10.3,6),steps:true},
  {n:"Course à pied 8 km/h",met:8.3,stepsPerMin:150,steps:true},
  {n:"Course à pied 10 km/h",met:9.8,stepsPerMin:165,steps:true},
  {n:"Course à pied 12 km/h",met:11.5,stepsPerMin:175,steps:true},
@@ -1992,14 +2019,6 @@ function bindEvents(){
       renderAll();
     };
   });
-  document.querySelectorAll('.chip[data-steps]').forEach(c=>{
-    c.onclick = async ()=>{
-      const day = await getDay(state.currentDate);
-      day.steps = Math.max(0, Math.round(day.steps + parseInt(c.dataset.steps)));
-      await saveDay(state.currentDate);
-      renderAll();
-    };
-  });
 
   // Calendar
   document.getElementById('tabCalWeek').onclick = ()=>{ state.cal.mode='week'; renderCalendar(); };
@@ -2027,7 +2046,7 @@ function bindEvents(){
     const box = document.getElementById('foodResults');
     if(!results.length){ box.classList.add('hidden'); box.innerHTML=''; return; }
     box.classList.remove('hidden');
-    box.innerHTML = results.map((f,i)=>`<div class="sr-item" data-i="${i}"><span class="sr-name">${f.n}</span><span class="sr-meta">${f.k} kcal /100${f.isLiquid?'ml':'g'}</span></div>`).join('');
+    box.innerHTML = results.map((f,i)=>`<div class="sr-item" data-i="${i}"><span class="sr-name">${f.n}</span><span class="sr-meta">${Math.round(kcalFrom(f))} kcal /100${f.isLiquid?'ml':'g'}</span></div>`).join('');
     [...box.children].forEach((el,i)=> el.onclick = ()=> selectFood(results[i]));
   };
   document.getElementById('startScanBtn').onclick = startScan;
