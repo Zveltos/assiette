@@ -104,6 +104,8 @@ section{margin-top:22px;}
 .entry-macros .mf{color:var(--over);}
 .entry-kcal{font-size:13px;font-weight:600;color:var(--forest);white-space:nowrap;}
 .entry-del{background:none;border:none;color:var(--ink-soft);font-size:16px;padding:4px;}
+.entry-actions{display:flex;align-items:center;gap:2px;flex:0 0 auto;}
+.entry-edit{background:none;border:none;color:var(--forest);font-size:15px;padding:4px;}
 .empty{padding:26px 16px;text-align:center;color:var(--ink-soft);font-size:13px;}
 .add-row{width:100%;background:none;border:none;padding:13px 16px;display:flex;align-items:center;gap:10px;color:var(--forest);font-weight:600;font-size:14px;border-top:1px solid var(--line);}
 .add-row .plus{width:22px;height:22px;border-radius:50%;background:var(--forest);color:#0d1210;display:flex;align-items:center;justify-content:center;font-size:14px;}
@@ -357,6 +359,12 @@ footer.credit{text-align:center;font-size:11px;color:var(--ink-soft);opacity:.7;
         <p class="desc">10 000 pas/jour est un repère de santé publique courant (pas une valeur unique officielle) — ajuste-le selon ta situation.</p>
         <div class="field"><label>Pas / jour</label><input type="number" id="setStepsGoal" inputmode="numeric"></div>
         <button class="btn secondary" id="saveStepsBtn">Enregistrer</button>
+      </div>
+
+      <div class="settings-block">
+        <h3>Mes aliments</h3>
+        <p class="desc">Aliments créés à la main ou enregistrés automatiquement lors d'un scan de code-barres. La base Ciqual (281 aliments d'origine) n'est pas modifiable ici.</p>
+        <div id="customFoodsList"></div>
       </div>
 
       <div class="settings-block">
@@ -971,6 +979,7 @@ function tx(store,mode='readonly'){ return db.transaction(store,mode).objectStor
 function idbGetIDB(store,key){ return new Promise((res,rej)=>{const r=tx(store).get(key); r.onsuccess=()=>res(r.result); r.onerror=rej;}); }
 function idbPutIDB(store,val){ return new Promise((res,rej)=>{const r=tx(store,'readwrite').put(val); r.onsuccess=()=>res(); r.onerror=rej;}); }
 function idbAllIDB(store){ return new Promise((res,rej)=>{const out=[]; const r=tx(store).openCursor(); r.onsuccess=e=>{const c=e.target.result; if(c){out.push(c.value); c.continue();} else res(out);}; r.onerror=rej;}); }
+function idbDeleteIDB(store,key){ return new Promise((res,rej)=>{const r=tx(store,'readwrite').delete(key); r.onsuccess=()=>res(); r.onerror=rej;}); }
 
 // --- repli localStorage : chaque "store" est un objet {clé: valeur} sérialisé ---
 function lsKey(store){ return 'assiette_ls_'+store; }
@@ -992,6 +1001,11 @@ async function _rawPut(store,val){
   if(storageMode==='localstorage'){ const all=lsReadAll(store); all[val[kp]]=val; lsWriteAll(store,all); return; }
   memStore[store][val[kp]] = val;
 }
+async function _rawDelete(store,key){
+  if(storageMode==='indexeddb') return idbDeleteIDB(store,key);
+  if(storageMode==='localstorage'){ const all=lsReadAll(store); delete all[key]; lsWriteAll(store,all); return; }
+  delete memStore[store][key];
+}
 // Écriture "publique" : en plus d'écrire, marque les données comme modifiées
 // localement (horodatage) et programme un envoi vers le cloud si connecté.
 // { silent:true } évite la boucle infinie quand on écrit juste l'horodatage.
@@ -1007,6 +1021,16 @@ async function idbAll(store){
   if(storageMode==='indexeddb') return idbAllIDB(store);
   if(storageMode==='localstorage') return Object.values(lsReadAll(store));
   return Object.values(memStore[store]);
+}
+// Suppression "publique" : même logique que idbPut (marque la modification
+// locale et programme un envoi cloud) mais pour retirer une entrée.
+async function idbDelete(store,key,opts={}){
+  await _rawDelete(store,key);
+  if(!opts.silent){
+    state.meta.lastLocalChangeAt = new Date().toISOString();
+    await _rawPut('meta', {key:'settings', value:state.meta});
+    scheduleCloudPush();
+  }
 }
 
 /* ============================================================
@@ -1149,6 +1173,7 @@ let state = {
   dayCache: {},
   customFoods: [],
   pendingFood: null,
+  editingFoodId: null,
   cal: {mode:'week', anchor: todayStr(), daysMap:{}},
 };
 let lastKcalInputValue = 2000;
@@ -1356,6 +1381,7 @@ async function renderAll(){
   renderFibSuggestion();
   renderBMRSuggestion();
   renderExportReminder();
+  renderCustomFoodsList();
 }
 
 function renderSuggestSplit(kcal){
@@ -1862,12 +1888,21 @@ async function lookupBarcode(code, fromScan=false){
 /* ============================================================
    ALIMENT PERSONNALISÉ
    ============================================================ */
+function updateCfKcalPreview(){
+  const k = kcalFrom({
+    p:parseFloat(document.getElementById('cfProt').value)||0,
+    c:parseFloat(document.getElementById('cfCarb').value)||0,
+    fib:parseFloat(document.getElementById('cfFib').value)||0,
+    f:parseFloat(document.getElementById('cfFat').value)||0,
+  });
+  document.getElementById('cfKcalPreview').innerHTML = `<b>${Math.round(k)} kcal</b> /100`;
+}
+
 async function saveCustomFood(){
   const name = document.getElementById('cfName').value.trim();
   if(!name){ toast('Indique un nom'); return; }
-  const food = {
-    id: 'cf_'+Date.now(),
-    n:name, cat:'Perso',
+  const fields = {
+    n:name,
     p:parseFloat(document.getElementById('cfProt').value)||0,
     c:parseFloat(document.getElementById('cfCarb').value)||0,
     fib:parseFloat(document.getElementById('cfFib').value)||0,
@@ -1875,10 +1910,81 @@ async function saveCustomFood(){
     isLiquid: document.getElementById('cfLiquid').value==='1',
     unitG: parseFloat(document.getElementById('cfUnitG').value)||null,
   };
+
+  // Mode édition : on modifie l'aliment existant sur place (même id, même
+  // origine — perso ou scanné) au lieu d'en recréer un nouveau, et on ne
+  // relance pas le flux "ajouter au repas" : on revient juste à la liste.
+  if(state.editingFoodId){
+    const food = state.customFoods.find(f=>f.id===state.editingFoodId);
+    if(!food){ toast('Aliment introuvable'); state.editingFoodId=null; return; }
+    Object.assign(food, fields);
+    await idbPut('customFoods', food);
+    state.editingFoodId = null;
+    document.getElementById('saveCustomFoodBtn').textContent = 'Créer et utiliser cet aliment';
+    closeFoodModal();
+    renderCustomFoodsList();
+    toast('Aliment mis à jour');
+    return;
+  }
+
+  const food = { id: 'cf_'+Date.now(), cat:'Perso', ...fields };
   state.customFoods.push(food);
   await idbPut('customFoods', food);
   selectFood(food);
   toast('Aliment personnalisé créé');
+}
+
+// Ouvre le formulaire "Personnalisé", pré-rempli avec les valeurs d'un
+// aliment existant (perso ou scanné), pour le modifier depuis les Réglages.
+function openEditFoodModal(id){
+  const food = state.customFoods.find(f=>f.id===id);
+  if(!food) return;
+  state.editingFoodId = id;
+  document.getElementById('foodBackdrop').classList.add('open');
+  setFoodTab('custom');
+  document.getElementById('cfName').value = food.n;
+  document.getElementById('cfProt').value = food.p;
+  document.getElementById('cfCarb').value = food.c;
+  document.getElementById('cfFib').value = food.fib||0;
+  document.getElementById('cfFat').value = food.f;
+  document.getElementById('cfLiquid').value = food.isLiquid ? '1' : '0';
+  document.getElementById('cfUnitG').value = food.unitG||'';
+  document.getElementById('saveCustomFoodBtn').textContent = 'Enregistrer les modifications';
+  updateCfKcalPreview();
+}
+
+async function deleteCustomFood(id){
+  const food = state.customFoods.find(f=>f.id===id);
+  if(!food) return;
+  if(!confirm(`Supprimer « ${food.n} » de tes aliments ? Les repas déjà enregistrés avec cet aliment ne seront pas modifiés.`)) return;
+  state.customFoods = state.customFoods.filter(f=>f.id!==id);
+  await idbDelete('customFoods', id);
+  renderCustomFoodsList();
+  toast('Aliment supprimé');
+}
+
+function renderCustomFoodsList(){
+  const wrap = document.getElementById('customFoodsList');
+  if(!wrap) return;
+  if(!state.customFoods.length){
+    wrap.innerHTML = '<div class="empty">Aucun aliment personnalisé ou scanné pour l’instant</div>';
+    return;
+  }
+  const sorted = [...state.customFoods].sort((a,b)=>a.n.localeCompare(b.n,'fr'));
+  wrap.innerHTML = sorted.map(f=>{
+    const src = f.source==='off' ? 'Scanné · Open Food Facts' : 'Personnalisé';
+    return `<div class="entry">
+      <div class="entry-ico">${f.source==='off'?'📷':'✏️'}</div>
+      <div class="entry-main">
+        <div class="entry-name">${f.n}</div>
+        <div class="entry-sub">${Math.round(kcalFrom(f))} kcal /100${f.isLiquid?'ml':'g'} · ${src}</div>
+      </div>
+      <div class="entry-actions">
+        <button class="entry-edit" data-id="${f.id}" title="Modifier">✎</button>
+        <button class="entry-del" data-id="${f.id}" title="Supprimer">✕</button>
+      </div>
+    </div>`;
+  }).join('');
 }
 
 /* ============================================================
@@ -2164,6 +2270,12 @@ function bindEvents(){
     day.meals.splice(parseInt(btn.dataset.idx),1);
     await saveDay(state.currentDate); renderAll();
   });
+  document.getElementById('customFoodsList').addEventListener('click', e=>{
+    const editBtn = e.target.closest('.entry-edit');
+    if(editBtn){ openEditFoodModal(editBtn.dataset.id); return; }
+    const delBtn = e.target.closest('.entry-del');
+    if(delBtn){ deleteCustomFood(delBtn.dataset.id); return; }
+  });
   document.getElementById('exList').addEventListener('click', async e=>{
     const btn = e.target.closest('.entry-del'); if(!btn) return;
     const day = await getDay(state.currentDate);
@@ -2188,15 +2300,7 @@ function bindEvents(){
   document.getElementById('setFib').oninput = ()=> rebalanceMacros('fib');
 
   ['cfProt','cfCarb','cfFib','cfFat'].forEach(id=>{
-    document.getElementById(id).addEventListener('input', ()=>{
-      const k = kcalFrom({
-        p:parseFloat(document.getElementById('cfProt').value)||0,
-        c:parseFloat(document.getElementById('cfCarb').value)||0,
-        fib:parseFloat(document.getElementById('cfFib').value)||0,
-        f:parseFloat(document.getElementById('cfFat').value)||0,
-      });
-      document.getElementById('cfKcalPreview').innerHTML = `<b>${Math.round(k)} kcal</b> /100`;
-    });
+    document.getElementById(id).addEventListener('input', updateCfKcalPreview);
   });
 
   document.getElementById('dbInfoBtn').onclick = ()=> openInfoModal(
@@ -2362,10 +2466,14 @@ function openFoodModal(){
   document.getElementById('foodSelected').classList.add('hidden');
   document.getElementById('foodSearchInput').value='';
   document.getElementById('foodResults').classList.add('hidden');
+  state.editingFoodId = null;
+  document.getElementById('saveCustomFoodBtn').textContent = 'Créer et utiliser cet aliment';
 }
 function closeFoodModal(){
   document.getElementById('foodBackdrop').classList.remove('open');
   stopScan();
+  state.editingFoodId = null;
+  document.getElementById('saveCustomFoodBtn').textContent = 'Créer et utiliser cet aliment';
 }
 function setFoodTab(mode){
   document.getElementById('tabSearch').classList.toggle('active', mode==='search');
