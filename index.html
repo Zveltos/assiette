@@ -876,6 +876,127 @@ const FOOD_DB = [
   {n:"Sucre blanc",cat:"Autre",p:0,c:99.8,fib:0,f:0,cq:31016,kcq:399},
 ];
 
+/* ============================================================
+   PLATS COMPOSÉS DE RESTAURANT — base complémentaire
+   Contrairement à FOOD_DB ci-dessus (100% Ciqual, un code par
+   aliment), ces plats n'ont pas de code Ciqual : un « couscous
+   royal » ou une « tartiflette » n'a pas de fiche officielle
+   unique tant la recette varie d'un restaurant à l'autre.
+   Deux niveaux de confiance, distingués par cat :
+   - "Plat composé (sourcé)" : recoupé avec au moins 2 sources
+     indépendantes (Ciqual quand le plat y figure, sinon fiches
+     techniques de fabricants de restauration collective).
+   - "Plat composé (estimé)" : reconstitué à partir de la
+     composition type du plat (pas de vérification croisée).
+     Ajuste ces entrées via Réglages > Mes aliments (dupliquer
+     puis modifier) dès que tu repères un écart avec ta version.
+   unitG = poids typique d'une portion telle que servie, pas
+   le poids des ingrédients crus.
+   ============================================================ */
+const RESTAURANT_DB = [
+  {n:"Salade César (avec poulet)",cat:"Plat composé (sourcé)",p:8,c:5,fib:2,f:10,unitG:300},
+  {n:"Coupe glacée Dame Blanche (vanille, chocolat chaud, chantilly)",cat:"Plat composé (sourcé)",p:2,c:27,fib:0,f:11,unitG:200},
+  {n:"Croque-monsieur (jambon, fromage, béchamel)",cat:"Plat composé (sourcé)",p:13,c:22,fib:1,f:11,unitG:180},
+  {n:"Quiche lorraine (part)",cat:"Plat composé (sourcé)",p:9,c:16,fib:1,f:20,unitG:150},
+  {n:"Tartiflette",cat:"Plat composé (sourcé)",p:8,c:10,fib:1,f:14,unitG:400},
+  {n:"Couscous royal (poulet, agneau, merguez, légumes)",cat:"Plat composé (sourcé)",p:9,c:16,fib:2,f:7,unitG:550},
+  {n:"Moules marinières (sans les frites)",cat:"Plat composé (sourcé)",p:10,c:4,fib:0.5,f:3.5,unitG:400},
+  {n:"Paella (mixte poulet/fruits de mer)",cat:"Plat composé (sourcé)",p:9.5,c:16.5,fib:1,f:5.5,unitG:400},
+  {n:"Tiramisu (part)",cat:"Plat composé (sourcé)",p:5,c:24,fib:0.5,f:18,unitG:120},
+  {n:"Sandwich grec / Kebab (pain, viande, crudités, sauce)",cat:"Plat composé (sourcé)",p:15,c:20,fib:2,f:11,unitG:380},
+  {n:"Blanquette de veau (sauce et viande, sans accompagnement)",cat:"Plat composé (sourcé)",p:14,c:3,fib:0.5,f:5,unitG:350},
+  {n:"Bœuf bourguignon (sauce et viande, sans accompagnement)",cat:"Plat composé (sourcé)",p:14,c:10,fib:0.5,f:5,unitG:350},
+  {n:"Lasagnes à la bolognaise",cat:"Plat composé (sourcé)",p:8,c:13,fib:1,f:8,unitG:350},
+  {n:"Risotto aux champignons",cat:"Plat composé (sourcé)",p:5,c:20,fib:1,f:7,unitG:350},
+  {n:"Crème brûlée (part)",cat:"Plat composé (sourcé)",p:4,c:24,fib:0,f:19,unitG:120},
+  {n:"Mousse au chocolat (part)",cat:"Plat composé (sourcé)",p:4.5,c:18,fib:1,f:14,unitG:100},
+  {n:"Salade niçoise",cat:"Plat composé (sourcé)",p:10,c:8,fib:1.5,f:8,unitG:350},
+  {n:"Gratin dauphinois",cat:"Plat composé (sourcé)",p:3,c:12,fib:1.2,f:6,unitG:250},
+  {n:"Cassoulet (haricots, confit, saucisse)",cat:"Plat composé (sourcé)",p:11,c:9,fib:3,f:9,unitG:450},
+  {n:"Choucroute garnie",cat:"Plat composé (sourcé)",p:5,c:7,fib:2,f:9,unitG:500},
+  {n:"Pâtes carbonara (à la française, crème et lardons)",cat:"Plat composé (sourcé)",p:9,c:22,fib:1,f:10,unitG:350},
+
+  {n:"Bavette à l'échalote (sauce échalote, sans frites)",cat:"Plat composé (estimé)",p:20,c:2,fib:0.3,f:12,unitG:200},
+  {n:"Confit de canard (sans accompagnement)",cat:"Plat composé (estimé)",p:22,c:0,fib:0,f:22,unitG:200},
+  {n:"Magret de canard, sauce au miel",cat:"Plat composé (estimé)",p:20,c:8,fib:0.2,f:14,unitG:180},
+  {n:"Poulet basquaise",cat:"Plat composé (estimé)",p:14,c:6,fib:1,f:6,unitG:350},
+  {n:"Hachis parmentier",cat:"Plat composé (estimé)",p:8,c:12,fib:1,f:7,unitG:350},
+  {n:"Pot-au-feu (viande, légumes, bouillon)",cat:"Plat composé (estimé)",p:12,c:6,fib:1.5,f:6,unitG:450},
+  {n:"Endives au jambon gratinées",cat:"Plat composé (estimé)",p:8,c:5,fib:2,f:9,unitG:300},
+  {n:"Soupe à l'oignon gratinée",cat:"Plat composé (estimé)",p:6,c:8,fib:1,f:7,unitG:350},
+  {n:"Vol-au-vent / bouchée à la reine",cat:"Plat composé (estimé)",p:9,c:14,fib:0.5,f:12,unitG:300},
+  {n:"Rôti de porc, sauce moutarde",cat:"Plat composé (estimé)",p:22,c:3,fib:0.2,f:8,unitG:200},
+  {n:"Escalope de veau normande (crème, champignons)",cat:"Plat composé (estimé)",p:18,c:3,fib:0.3,f:10,unitG:220},
+  {n:"Saint-Jacques poêlées, sauce crème",cat:"Plat composé (estimé)",p:12,c:3,fib:0.2,f:10,unitG:200},
+  {n:"Brandade de morue",cat:"Plat composé (estimé)",p:8,c:12,fib:1,f:10,unitG:300},
+  {n:"Tartare de bœuf (préparé, sauce incluse)",cat:"Plat composé (estimé)",p:18,c:2,fib:0.3,f:14,unitG:200},
+  {n:"Tartare de saumon",cat:"Plat composé (estimé)",p:16,c:2,fib:0.3,f:16,unitG:180},
+  {n:"Cordon bleu maison (poulet pané, jambon, fromage)",cat:"Plat composé (estimé)",p:16,c:14,fib:1,f:14,unitG:180},
+  {n:"Pâtes bolognaise",cat:"Plat composé (estimé)",p:7,c:16,fib:1.2,f:6,unitG:350},
+  {n:"Pâtes au pesto",cat:"Plat composé (estimé)",p:7,c:22,fib:1.5,f:10,unitG:320},
+  {n:"Pâtes 4 fromages",cat:"Plat composé (estimé)",p:9,c:18,fib:1,f:12,unitG:320},
+  {n:"Gratin de macaronis au jambon",cat:"Plat composé (estimé)",p:8,c:16,fib:1,f:9,unitG:350},
+  {n:"Escalope milanaise (panée, citron)",cat:"Plat composé (estimé)",p:18,c:14,fib:0.8,f:12,unitG:200},
+  {n:"Osso buco (veau, sauce tomate, gremolata, sans accompagnement)",cat:"Plat composé (estimé)",p:16,c:4,fib:0.8,f:8,unitG:350},
+  {n:"Saltimbocca alla romana (veau, jambon cru, sauge)",cat:"Plat composé (estimé)",p:20,c:1,fib:0.1,f:9,unitG:180},
+  {n:"Panna cotta (coulis fruits rouges)",cat:"Plat composé (estimé)",p:3,c:20,fib:0.5,f:14,unitG:110},
+  {n:"Cannelloni ricotta épinards",cat:"Plat composé (estimé)",p:8,c:15,fib:1.5,f:9,unitG:320},
+  {n:"Gnocchi gorgonzola",cat:"Plat composé (estimé)",p:7,c:20,fib:1,f:12,unitG:320},
+  {n:"Pizza 4 fromages (part)",cat:"Plat composé (estimé)",p:12,c:26,fib:1.5,f:12,unitG:120},
+  {n:"Nems (rouleaux de printemps frits, sauce nuoc mam)",cat:"Plat composé (estimé)",p:8,c:20,fib:1.5,f:14,unitG:120},
+  {n:"Rouleaux de printemps frais (crevette, vermicelle)",cat:"Plat composé (estimé)",p:8,c:20,fib:1.5,f:2,unitG:150},
+  {n:"Riz cantonais",cat:"Plat composé (estimé)",p:6,c:28,fib:1,f:6,unitG:300},
+  {n:"Poulet au curry (sans riz)",cat:"Plat composé (estimé)",p:14,c:5,fib:1,f:10,unitG:300},
+  {n:"Curry vert thaï au poulet (sans riz)",cat:"Plat composé (estimé)",p:12,c:5,fib:1,f:12,unitG:300},
+  {n:"Pad thaï (nouilles, poulet ou crevettes, cacahuètes)",cat:"Plat composé (estimé)",p:10,c:22,fib:1.5,f:9,unitG:350},
+  {n:"Nouilles sautées au poulet (wok, légumes)",cat:"Plat composé (estimé)",p:10,c:20,fib:1.5,f:7,unitG:350},
+  {n:"Bo bun (bœuf, vermicelles, crudités, nuoc mam)",cat:"Plat composé (estimé)",p:9,c:15,fib:1.5,f:5,unitG:400},
+  {n:"Ramen (bol complet, porc, œuf, bouillon)",cat:"Plat composé (estimé)",p:8,c:12,fib:1,f:5,unitG:500},
+  {n:"Plateau de sushi/maki mixte (saumon, thon, avocat)",cat:"Plat composé (estimé)",p:7,c:28,fib:0.8,f:3,unitG:250},
+  {n:"Poke bowl saumon (riz, avocat, légumes, sauce)",cat:"Plat composé (estimé)",p:10,c:18,fib:1.5,f:9,unitG:400},
+  {n:"Gyoza / raviolis vapeur (sauce soja)",cat:"Plat composé (estimé)",p:9,c:20,fib:1,f:7,unitG:180},
+  {n:"Tacos français (viande, fromage, sauce, frites)",cat:"Plat composé (estimé)",p:12,c:28,fib:2,f:16,unitG:400},
+  {n:"Burrito poulet (riz, haricots, fromage)",cat:"Plat composé (estimé)",p:10,c:22,fib:2,f:7,unitG:350},
+  {n:"Quesadilla au fromage",cat:"Plat composé (estimé)",p:12,c:24,fib:1.5,f:14,unitG:180},
+  {n:"Nachos garnis (fromage, guacamole, crème)",cat:"Plat composé (estimé)",p:7,c:24,fib:2,f:16,unitG:250},
+  {n:"Fajitas au poulet (sans tortilla)",cat:"Plat composé (estimé)",p:15,c:6,fib:1.5,f:8,unitG:300},
+  {n:"Chili con carne",cat:"Plat composé (estimé)",p:10,c:10,fib:3,f:6,unitG:350},
+  {n:"Enchiladas (tortilla, poulet, sauce, fromage)",cat:"Plat composé (estimé)",p:10,c:18,fib:1.5,f:9,unitG:300},
+  {n:"Falafel, assiette (houmous, salade, pain)",cat:"Plat composé (estimé)",p:8,c:24,fib:4,f:12,unitG:350},
+  {n:"Moussaka (aubergine, viande hachée, béchamel)",cat:"Plat composé (estimé)",p:8,c:8,fib:1.5,f:10,unitG:350},
+  {n:"Poulet tikka masala (sans riz)",cat:"Plat composé (estimé)",p:14,c:6,fib:1,f:10,unitG:300},
+  {n:"Samoussas légumes",cat:"Plat composé (estimé)",p:5,c:22,fib:2,f:10,unitG:150},
+  {n:"Taboulé",cat:"Plat composé (estimé)",p:3,c:20,fib:2,f:6,unitG:200},
+  {n:"Burger classique (restaurant, sans frites)",cat:"Plat composé (estimé)",p:15,c:22,fib:1.5,f:14,unitG:280},
+  {n:"Hot-dog (pain, saucisse, sauce)",cat:"Plat composé (estimé)",p:9,c:20,fib:1,f:12,unitG:180},
+  {n:"Fish and chips (poisson pané, frites)",cat:"Plat composé (estimé)",p:9,c:22,fib:1.5,f:12,unitG:400},
+  {n:"Chicken wings, sauce",cat:"Plat composé (estimé)",p:20,c:5,fib:0.3,f:16,unitG:200},
+  {n:"Onion rings",cat:"Plat composé (estimé)",p:4,c:28,fib:2,f:14,unitG:150},
+  {n:"Wrap poulet Caesar",cat:"Plat composé (estimé)",p:12,c:20,fib:1.5,f:9,unitG:250},
+  {n:"Club sandwich (poulet, bacon, œuf)",cat:"Plat composé (estimé)",p:12,c:22,fib:1.5,f:10,unitG:280},
+  {n:"Panini jambon fromage",cat:"Plat composé (estimé)",p:14,c:26,fib:1.5,f:12,unitG:200},
+  {n:"Bagel saumon fumé, cream cheese",cat:"Plat composé (estimé)",p:12,c:28,fib:1.5,f:10,unitG:180},
+  {n:"Croque Madame (croque monsieur + œuf)",cat:"Plat composé (estimé)",p:14,c:20,fib:1,f:13,unitG:200},
+  {n:"Œufs Bénédicte (muffin, sauce hollandaise, bacon)",cat:"Plat composé (estimé)",p:11,c:14,fib:0.8,f:16,unitG:220},
+  {n:"Pancakes, sirop d'érable",cat:"Plat composé (estimé)",p:6,c:38,fib:1,f:8,unitG:180},
+  {n:"Gaufre garnie (chantilly, sucre)",cat:"Plat composé (estimé)",p:5,c:32,fib:1,f:14,unitG:150},
+  {n:"Crêpe Nutella",cat:"Plat composé (estimé)",p:5,c:38,fib:1,f:12,unitG:120},
+  {n:"Crêpe complète (jambon, œuf, fromage)",cat:"Plat composé (estimé)",p:12,c:24,fib:1,f:10,unitG:150},
+  {n:"Pain perdu (sucre, cannelle)",cat:"Plat composé (estimé)",p:6,c:32,fib:1,f:10,unitG:120},
+  {n:"Tarte tatin (part)",cat:"Plat composé (estimé)",p:3,c:32,fib:1.5,f:12,unitG:120},
+  {n:"Tarte aux pommes (part)",cat:"Plat composé (estimé)",p:3,c:30,fib:1.5,f:10,unitG:120},
+  {n:"Tarte au citron meringuée (part)",cat:"Plat composé (estimé)",p:4,c:38,fib:0.5,f:10,unitG:110},
+  {n:"Profiteroles (choux, glace, sauce chocolat)",cat:"Plat composé (estimé)",p:5,c:26,fib:0.8,f:16,unitG:150},
+  {n:"Éclair au chocolat",cat:"Plat composé (estimé)",p:5,c:34,fib:0.8,f:16,unitG:100},
+  {n:"Paris-Brest",cat:"Plat composé (estimé)",p:6,c:30,fib:1,f:22,unitG:110},
+  {n:"Fondant au chocolat",cat:"Plat composé (estimé)",p:5,c:36,fib:1.5,f:18,unitG:100},
+  {n:"Cheesecake (part)",cat:"Plat composé (estimé)",p:6,c:28,fib:0.8,f:18,unitG:120},
+  {n:"Brownie",cat:"Plat composé (estimé)",p:5,c:44,fib:1.5,f:20,unitG:70},
+  {n:"Banana split (glace, banane, chantilly, chocolat)",cat:"Plat composé (estimé)",p:3,c:26,fib:1,f:10,unitG:250},
+  {n:"Raclette (fromage, pomme de terre, charcuterie)",cat:"Plat composé (estimé)",p:14,c:14,fib:1,f:22,unitG:350},
+  {n:"Fondue savoyarde (fromage, pain)",cat:"Plat composé (estimé)",p:14,c:18,fib:0.8,f:22,unitG:250},
+];
+
 /* MET = équivalent métabolique (Compendium of Physical Activities,
    référence en médecine du sport). stepsPerMin permet d'estimer
    automatiquement le nombre de pas pour les activités de marche/course.
@@ -1592,7 +1713,7 @@ function toast(msg){
 /* ============================================================
    RECHERCHE ALIMENT
    ============================================================ */
-function allFoods(){ return FOOD_DB.concat(state.customFoods); }
+function allFoods(){ return FOOD_DB.concat(RESTAURANT_DB, state.customFoods); }
 function searchFoods(q){
   q = q.trim().toLowerCase();
   if(!q) return [];
