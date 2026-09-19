@@ -103,9 +103,11 @@ section{margin-top:22px;}
 .entry-macros .mc{color:var(--gold);}
 .entry-macros .mf{color:var(--over);}
 .entry-kcal{font-size:13px;font-weight:600;color:var(--forest);white-space:nowrap;}
-.entry-del{background:none;border:none;color:var(--ink-soft);font-size:16px;padding:4px;}
+.entry-del{background:none;border:none;color:var(--ink-soft);font-size:20px;padding:6px;line-height:1;border-radius:8px;}
 .entry-actions{display:flex;align-items:center;gap:2px;flex:0 0 auto;}
-.entry-edit{background:none;border:none;color:var(--forest);font-size:15px;padding:4px;}
+.entry-edit{background:none;border:none;color:var(--forest);font-size:19px;padding:6px;line-height:1;border-radius:8px;}
+.entry-dup{background:none;border:none;color:var(--water);font-size:19px;padding:6px;line-height:1;border-radius:8px;}
+.entry-edit:active,.entry-del:active,.entry-dup:active{background:var(--gold-soft);}
 .empty{padding:26px 16px;text-align:center;color:var(--ink-soft);font-size:13px;}
 .add-row{width:100%;background:none;border:none;padding:13px 16px;display:flex;align-items:center;gap:10px;color:var(--forest);font-weight:600;font-size:14px;border-top:1px solid var(--line);}
 .add-row .plus{width:22px;height:22px;border-radius:50%;background:var(--forest);color:#0d1210;display:flex;align-items:center;justify-content:center;font-size:14px;}
@@ -1963,6 +1965,27 @@ async function deleteCustomFood(id){
   toast('Aliment supprimé');
 }
 
+// Duplique un aliment personnalisé (perso ou scanné) sous un nouveau nom :
+// pratique pour créer une variante (ex : "Sauce tomate" → "Sauce tomate maison")
+// sans repartir de zéro. La copie est toujours "Perso" et perd le lien avec
+// un éventuel code-barres (elle ne sera plus mise à jour par un futur scan).
+async function duplicateCustomFood(id){
+  const food = state.customFoods.find(f=>f.id===id);
+  if(!food) return;
+  const copy = {
+    id: 'cf_'+Date.now(),
+    cat: 'Perso',
+    n: food.n+' (copie)',
+    p: food.p, c: food.c, fib: food.fib||0, f: food.f,
+    isLiquid: !!food.isLiquid,
+    unitG: food.unitG||null,
+  };
+  state.customFoods.push(copy);
+  await idbPut('customFoods', copy);
+  renderCustomFoodsList();
+  toast('Aliment dupliqué — modifie le nom si besoin');
+}
+
 function renderCustomFoodsList(){
   const wrap = document.getElementById('customFoodsList');
   if(!wrap) return;
@@ -1981,6 +2004,7 @@ function renderCustomFoodsList(){
       </div>
       <div class="entry-actions">
         <button class="entry-edit" data-id="${f.id}" title="Modifier">✎</button>
+        <button class="entry-dup" data-id="${f.id}" title="Dupliquer">⧉</button>
         <button class="entry-del" data-id="${f.id}" title="Supprimer">✕</button>
       </div>
     </div>`;
@@ -2273,6 +2297,8 @@ function bindEvents(){
   document.getElementById('customFoodsList').addEventListener('click', e=>{
     const editBtn = e.target.closest('.entry-edit');
     if(editBtn){ openEditFoodModal(editBtn.dataset.id); return; }
+    const dupBtn = e.target.closest('.entry-dup');
+    if(dupBtn){ duplicateCustomFood(dupBtn.dataset.id); return; }
     const delBtn = e.target.closest('.entry-del');
     if(delBtn){ deleteCustomFood(delBtn.dataset.id); return; }
   });
