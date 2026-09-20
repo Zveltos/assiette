@@ -108,6 +108,8 @@ section{margin-top:22px;}
 .entry-edit{background:none;border:none;color:var(--forest);font-size:19px;padding:6px;line-height:1;border-radius:8px;}
 .entry-dup{background:none;border:none;color:var(--water);font-size:19px;padding:6px;line-height:1;border-radius:8px;}
 .entry-edit:active,.entry-del:active,.entry-dup:active{background:var(--gold-soft);}
+.entry-move{background:none;border:none;color:var(--water);font-size:19px;padding:6px;line-height:1;border-radius:8px;}
+.entry-move:active{background:var(--gold-soft);}
 .empty{padding:26px 16px;text-align:center;color:var(--ink-soft);font-size:13px;}
 .add-row{width:100%;background:none;border:none;padding:13px 16px;display:flex;align-items:center;gap:10px;color:var(--forest);font-weight:600;font-size:14px;border-top:1px solid var(--line);}
 .add-row .plus{width:22px;height:22px;border-radius:50%;background:var(--forest);color:#0d1210;display:flex;align-items:center;justify-content:center;font-size:14px;}
@@ -492,6 +494,57 @@ footer.credit{text-align:center;font-size:11px;color:var(--ink-soft);opacity:.7;
     <div class="preview-box" id="exPreview" style="display:block;"></div>
     <button class="btn" id="confirmExBtn">Ajouter</button>
     <button class="btn ghost" id="closeExModal">Annuler</button>
+  </div>
+</div>
+
+<!-- MODALE D'ÉDITION D'UNE ENTRÉE DU JOUR (repas ou activité déjà loggés) -->
+<div class="sheet-backdrop" id="editEntryBackdrop">
+  <div class="sheet">
+    <div class="sheet-handle"></div>
+    <h3 id="editEntryTitle">Modifier l'entrée</h3>
+    <div class="field"><label>Nom</label><input type="text" id="editEntryName"></div>
+
+    <div id="editMealFields">
+      <div class="field" id="editEntryQtyRow">
+        <label>Quantité (<span id="editEntryQtyUnit">g</span>)</label>
+        <input type="number" step="any" id="editEntryQty">
+        <p class="hint">Modifie la quantité pour recalculer les macros automatiquement, ou ajuste-les directement ci-dessous.</p>
+      </div>
+      <div class="field"><label>Protéines (g)</label><input type="number" step="0.1" id="editEntryP"></div>
+      <div class="field"><label>Glucides (g)</label><input type="number" step="0.1" id="editEntryC"></div>
+      <div class="field"><label>Lipides (g)</label><input type="number" step="0.1" id="editEntryF"></div>
+      <div class="field"><label>Fibres (g)</label><input type="number" step="0.1" id="editEntryFib"></div>
+      <div class="preview-box" id="editEntryKcalPreview" style="display:block;"></div>
+    </div>
+
+    <div id="editExFields" class="hidden">
+      <div class="field"><label>Durée (minutes)</label><input type="number" id="editEntryDuration"></div>
+      <div class="field"><label>Calories brûlées</label><input type="number" id="editEntryKcalBurned"></div>
+      <div class="field"><label>Pas estimés (optionnel)</label><input type="number" id="editEntrySteps"></div>
+    </div>
+
+    <button class="btn" id="saveEditEntryBtn">Enregistrer</button>
+    <button class="btn ghost" id="closeEditEntryModal">Annuler</button>
+  </div>
+</div>
+
+<!-- MODALE DUPLIQUER / DÉPLACER UNE ENTRÉE VERS UN AUTRE JOUR -->
+<div class="sheet-backdrop" id="moveEntryBackdrop">
+  <div class="sheet">
+    <div class="sheet-handle"></div>
+    <h3>Dupliquer / déplacer</h3>
+    <p class="hint" id="moveEntryName"></p>
+    <div class="field"><label>Date de destination</label><input type="date" id="moveEntryDate"></div>
+    <div class="field">
+      <label>Action</label>
+      <select id="moveEntryAction">
+        <option value="copy">Copier (garder aussi ici)</option>
+        <option value="move">Déplacer (retirer d'ici)</option>
+      </select>
+      <p class="hint">Copier sur le même jour ajoute simplement un doublon (ex : un deuxième café).</p>
+    </div>
+    <button class="btn" id="moveEntryConfirmBtn">Valider</button>
+    <button class="btn ghost" id="closeMoveEntryModal">Annuler</button>
   </div>
 </div>
 
@@ -995,6 +1048,35 @@ const RESTAURANT_DB = [
   {n:"Banana split (glace, banane, chantilly, chocolat)",cat:"Plat composé (estimé)",p:3,c:26,fib:1,f:10,unitG:250},
   {n:"Raclette (fromage, pomme de terre, charcuterie)",cat:"Plat composé (estimé)",p:14,c:14,fib:1,f:22,unitG:350},
   {n:"Fondue savoyarde (fromage, pain)",cat:"Plat composé (estimé)",p:14,c:18,fib:0.8,f:22,unitG:250},
+
+  // Viennoiseries, pâtisseries et charcuterie — même logique de fiabilité
+  // que ci-dessus : "sourcé" = recoupé (Ciqual et/ou plusieurs fabricants),
+  // "estimé" = reconstitué à partir de la composition type, à ajuster via
+  // le bouton ✎ après duplication dans tes aliments personnels si besoin.
+  {n:"Croissant (pur beurre)",cat:"Plat composé (sourcé)",p:8.2,c:45.8,fib:2.6,f:21,unitG:50},
+  {n:"Pain aux raisins",cat:"Plat composé (sourcé)",p:7,c:48,fib:2.5,f:13,unitG:65},
+  {n:"Chausson aux pommes",cat:"Plat composé (sourcé)",p:4.5,c:40,fib:1.5,f:16,unitG:100},
+  {n:"Saucisson sec",cat:"Plat composé (sourcé)",p:26,c:1,fib:0,f:35,unitG:30},
+  {n:"Chorizo (espagnol)",cat:"Plat composé (sourcé)",p:24,c:2,fib:0.3,f:35,unitG:30},
+  {n:"Jambon de pays cru (type Bayonne/Serrano)",cat:"Plat composé (sourcé)",p:28,c:0,fib:0,f:13,unitG:25},
+  {n:"Rillettes de porc",cat:"Plat composé (sourcé)",p:18,c:0.5,fib:0,f:33,unitG:30},
+  {n:"Pâté de campagne",cat:"Plat composé (sourcé)",p:13,c:2,fib:0,f:30,unitG:40},
+  {n:"Pain au chocolat / Chocolatine (pur beurre)",cat:"Plat composé (estimé)",p:7.5,c:46,fib:2,f:24,unitG:60},
+  {n:"Brioche (nature)",cat:"Plat composé (estimé)",p:8,c:50,fib:1.5,f:14,unitG:60},
+  {n:"Cookie aux pépites de chocolat",cat:"Plat composé (estimé)",p:5.5,c:60,fib:2,f:23,unitG:40},
+  {n:"Chouquette (pièce)",cat:"Plat composé (estimé)",p:6,c:55,fib:1.5,f:16,unitG:10},
+  {n:"Madeleine",cat:"Plat composé (estimé)",p:6,c:50,fib:1,f:20,unitG:20},
+  {n:"Financier",cat:"Plat composé (estimé)",p:7,c:42,fib:1.5,f:26,unitG:25},
+  {n:"Pain suisse (crème pâtissière, pépites)",cat:"Plat composé (estimé)",p:7,c:42,fib:1.5,f:18,unitG:90},
+  {n:"Kouign-amann",cat:"Plat composé (estimé)",p:5,c:48,fib:1,f:24,unitG:80},
+  {n:"Merguez (crue, à griller)",cat:"Plat composé (estimé)",p:16,c:1.5,fib:0.3,f:26,unitG:50},
+  {n:"Boudin noir",cat:"Plat composé (estimé)",p:13,c:3,fib:0,f:30,unitG:120},
+  {n:"Salami",cat:"Plat composé (estimé)",p:24,c:1,fib:0,f:30,unitG:30},
+  {n:"Mortadelle",cat:"Plat composé (estimé)",p:16,c:2,fib:0,f:25,unitG:30},
+  {n:"Coppa",cat:"Plat composé (estimé)",p:24,c:0.5,fib:0,f:20,unitG:25},
+  {n:"Bresaola",cat:"Plat composé (estimé)",p:32,c:0.5,fib:0,f:2,unitG:25},
+  {n:"Saucisse de Toulouse (crue)",cat:"Plat composé (estimé)",p:14,c:0.5,fib:0,f:22,unitG:100},
+  {n:"Andouillette",cat:"Plat composé (estimé)",p:14,c:2,fib:0,f:18,unitG:180},
 ];
 
 /* MET = équivalent métabolique (Compendium of Physical Activities,
@@ -1297,6 +1379,8 @@ let state = {
   customFoods: [],
   pendingFood: null,
   editingFoodId: null,
+  editingEntry: null,
+  movingEntry: null,
   cal: {mode:'week', anchor: todayStr(), daysMap:{}},
 };
 let lastKcalInputValue = 2000;
@@ -1472,7 +1556,7 @@ async function renderAll(){
   mealsList.innerHTML = day.meals.length? '' : '<div class="empty">Aucun aliment ajouté aujourd’hui</div>';
   day.meals.forEach((m,i)=>{
     const row = document.createElement('div'); row.className='entry';
-    row.innerHTML = `<div class="entry-ico">🥗</div><div class="entry-main"><div class="entry-name">${m.name}</div><div class="entry-sub">${m.qtyLabel}</div><div class="entry-macros num"><span class="mp">P ${Math.round(m.p)}g</span><span class="mc">G ${Math.round(m.c)}g</span><span class="mf">L ${Math.round(m.f)}g</span></div></div><div class="entry-kcal num">${Math.round(m.k)} kcal</div><button class="entry-del" data-type="meal" data-idx="${i}">✕</button>`;
+    row.innerHTML = `<div class="entry-ico">🥗</div><div class="entry-main"><div class="entry-name">${m.name}</div><div class="entry-sub">${m.qtyLabel}</div><div class="entry-macros num"><span class="mp">P ${Math.round(m.p)}g</span><span class="mc">G ${Math.round(m.c)}g</span><span class="mf">L ${Math.round(m.f)}g</span></div></div><div class="entry-kcal num">${Math.round(m.k)} kcal</div><div class="entry-actions"><button class="entry-edit" data-type="meal" data-idx="${i}" title="Modifier">✎</button><button class="entry-move" data-type="meal" data-idx="${i}" title="Dupliquer / déplacer vers un autre jour">📅</button><button class="entry-del" data-type="meal" data-idx="${i}">✕</button></div>`;
     mealsList.appendChild(row);
   });
 
@@ -1481,7 +1565,7 @@ async function renderAll(){
   day.exercises.forEach((ex,i)=>{
     const row = document.createElement('div'); row.className='entry';
     const stepsNote = ex.steps ? ` · ≈${ex.steps} pas` : '';
-    row.innerHTML = `<div class="entry-ico ex">🏃</div><div class="entry-main"><div class="entry-name">${ex.name}</div><div class="entry-sub">${ex.duration} min${stepsNote}</div></div><div class="entry-kcal num">-${Math.round(ex.kcal)} kcal</div><button class="entry-del" data-type="ex" data-idx="${i}">✕</button>`;
+    row.innerHTML = `<div class="entry-ico ex">🏃</div><div class="entry-main"><div class="entry-name">${ex.name}</div><div class="entry-sub">${ex.duration} min${stepsNote}</div></div><div class="entry-kcal num">-${Math.round(ex.kcal)} kcal</div><div class="entry-actions"><button class="entry-edit" data-type="ex" data-idx="${i}" title="Modifier">✎</button><button class="entry-move" data-type="ex" data-idx="${i}" title="Dupliquer / déplacer vers un autre jour">📅</button><button class="entry-del" data-type="ex" data-idx="${i}">✕</button></div>`;
     exList.appendChild(row);
   });
 
@@ -2133,6 +2217,170 @@ function renderCustomFoodsList(){
 }
 
 /* ============================================================
+   MODIFICATION D'UNE ENTRÉE DU JOUR (repas ou activité déjà loggés)
+   Contrairement à "Mes aliments" (qui modifie la fiche de référence
+   d'un aliment), ceci corrige une entrée précise du journal du jour
+   — utile en cas d'erreur de saisie (mauvaise quantité, mauvaise
+   durée...) sans devoir supprimer puis tout re-rentrer.
+   Le repas ne stocke pas l'aliment source ni son unité (g/ml/unité),
+   seulement les macros absolues déjà calculées et une étiquette
+   d'affichage ("150 g"). On retrouve la quantité d'origine en
+   parsant cette étiquette : si elle correspond au format attendu,
+   modifier la quantité recalcule les macros proportionnellement ;
+   sinon (étiquette inhabituelle), seule l'édition manuelle des
+   macros reste proposée.
+   ============================================================ */
+function updateEditEntryKcalPreview(){
+  const k = kcalFrom({
+    p:parseFloat(document.getElementById('editEntryP').value)||0,
+    c:parseFloat(document.getElementById('editEntryC').value)||0,
+    f:parseFloat(document.getElementById('editEntryF').value)||0,
+    fib:parseFloat(document.getElementById('editEntryFib').value)||0,
+  });
+  document.getElementById('editEntryKcalPreview').innerHTML = `<b>${Math.round(k)} kcal</b>`;
+}
+
+async function openEditMealEntry(idx){
+  const day = await getDay(state.currentDate);
+  const m = day.meals[idx]; if(!m) return;
+  state.editingEntry = {type:'meal', idx};
+  document.getElementById('editEntryTitle').textContent = 'Modifier cet aliment';
+  document.getElementById('editEntryName').value = m.name;
+  document.getElementById('editMealFields').classList.remove('hidden');
+  document.getElementById('editExFields').classList.add('hidden');
+  document.getElementById('editEntryP').value = Math.round((m.p||0)*10)/10;
+  document.getElementById('editEntryC').value = Math.round((m.c||0)*10)/10;
+  document.getElementById('editEntryF').value = Math.round((m.f||0)*10)/10;
+  document.getElementById('editEntryFib').value = Math.round((m.fib||0)*10)/10;
+
+  const match = /^([\d.]+)\s*(g|ml|unité)/.exec(m.qtyLabel||'');
+  const qtyRow = document.getElementById('editEntryQtyRow');
+  if(match && parseFloat(match[1])>0){
+    Object.assign(state.editingEntry, {
+      origQty: parseFloat(match[1]), unitLabel: match[2]==='unité' ? 'unité(s)' : match[2],
+      origP: m.p||0, origC: m.c||0, origF: m.f||0, origFib: m.fib||0,
+    });
+    document.getElementById('editEntryQtyUnit').textContent = state.editingEntry.unitLabel;
+    document.getElementById('editEntryQty').value = state.editingEntry.origQty;
+    qtyRow.classList.remove('hidden');
+  } else {
+    state.editingEntry.origQty = null;
+    qtyRow.classList.add('hidden');
+  }
+  updateEditEntryKcalPreview();
+  document.getElementById('editEntryBackdrop').classList.add('open');
+}
+
+async function openEditExEntry(idx){
+  const day = await getDay(state.currentDate);
+  const ex = day.exercises[idx]; if(!ex) return;
+  state.editingEntry = {type:'ex', idx, origDuration:ex.duration||0, origKcal:ex.kcal||0, origSteps:ex.steps||0};
+  document.getElementById('editEntryTitle').textContent = 'Modifier cette activité';
+  document.getElementById('editEntryName').value = ex.name;
+  document.getElementById('editMealFields').classList.add('hidden');
+  document.getElementById('editExFields').classList.remove('hidden');
+  document.getElementById('editEntryDuration').value = ex.duration;
+  document.getElementById('editEntryKcalBurned').value = Math.round(ex.kcal||0);
+  document.getElementById('editEntrySteps').value = Math.round(ex.steps||0);
+  document.getElementById('editEntryBackdrop').classList.add('open');
+}
+
+function closeEditEntryModal(){
+  document.getElementById('editEntryBackdrop').classList.remove('open');
+  state.editingEntry = null;
+}
+
+async function saveEditEntry(){
+  const st = state.editingEntry; if(!st) return;
+  const name = document.getElementById('editEntryName').value.trim();
+  if(!name){ toast('Indique un nom'); return; }
+  const day = await getDay(state.currentDate);
+
+  if(st.type==='meal'){
+    const m = day.meals[st.idx]; if(!m){ closeEditEntryModal(); return; }
+    const p=parseFloat(document.getElementById('editEntryP').value)||0;
+    const c=parseFloat(document.getElementById('editEntryC').value)||0;
+    const f=parseFloat(document.getElementById('editEntryF').value)||0;
+    const fib=parseFloat(document.getElementById('editEntryFib').value)||0;
+    m.name=name; m.p=p; m.c=c; m.f=f; m.fib=fib; m.k=kcalFrom({p,c,f,fib});
+    if(st.origQty!=null){
+      const newQty = parseFloat(document.getElementById('editEntryQty').value);
+      if(!isNaN(newQty) && newQty>0) m.qtyLabel = `${newQty} ${st.unitLabel}`;
+    }
+  } else {
+    const ex = day.exercises[st.idx]; if(!ex){ closeEditEntryModal(); return; }
+    const newSteps = parseFloat(document.getElementById('editEntrySteps').value)||0;
+    const stepsDelta = newSteps - (ex.steps||0);
+    ex.name = name;
+    ex.duration = parseFloat(document.getElementById('editEntryDuration').value)||ex.duration;
+    ex.kcal = parseFloat(document.getElementById('editEntryKcalBurned').value)||0;
+    ex.steps = newSteps;
+    day.steps = Math.max(0, Math.round((day.steps||0) + stepsDelta));
+  }
+
+  await saveDay(state.currentDate);
+  closeEditEntryModal();
+  renderAll();
+  toast('Entrée mise à jour');
+}
+
+// Duplique ou déplace une entrée (repas ou activité) vers un autre jour —
+// pratique pour recopier rapidement les mêmes plats d'un jour sur l'autre.
+async function openMoveEntry(type, idx){
+  const day = await getDay(state.currentDate);
+  const item = type==='meal' ? day.meals[idx] : day.exercises[idx];
+  if(!item) return;
+  state.movingEntry = {type, idx, origDate: state.currentDate};
+  document.getElementById('moveEntryName').textContent = `« ${item.name} »`;
+  // Par défaut on propose le lendemain : c'est le cas d'usage le plus courant
+  // (le même repas/la même séance que la veille).
+  const d = new Date(state.currentDate+'T12:00:00'); d.setDate(d.getDate()+1);
+  document.getElementById('moveEntryDate').value = todayStr(d);
+  document.getElementById('moveEntryAction').value = 'copy';
+  document.getElementById('moveEntryBackdrop').classList.add('open');
+}
+function closeMoveEntryModal(){
+  document.getElementById('moveEntryBackdrop').classList.remove('open');
+  state.movingEntry = null;
+}
+async function confirmMoveEntry(){
+  const st = state.movingEntry; if(!st) return;
+  const targetDate = document.getElementById('moveEntryDate').value;
+  if(!targetDate){ toast('Choisis une date'); return; }
+  const action = document.getElementById('moveEntryAction').value;
+
+  const origDay = await getDay(st.origDate);
+  const list = st.type==='meal' ? origDay.meals : origDay.exercises;
+  const item = list[st.idx];
+  if(!item){ closeMoveEntryModal(); return; }
+  const clone = {...item};
+
+  if(targetDate === st.origDate){
+    // Même jour : "déplacer" n'aurait aucun effet, on duplique toujours
+    // (utile pour un doublon volontaire, ex. un deuxième café identique).
+    list.splice(st.idx+1, 0, clone);
+    if(st.type==='ex' && clone.steps) origDay.steps = Math.max(0, Math.round((origDay.steps||0) + clone.steps));
+    await saveDay(st.origDate);
+  } else {
+    const targetDay = await getDay(targetDate);
+    const targetList = st.type==='meal' ? targetDay.meals : targetDay.exercises;
+    targetList.push(clone);
+    if(st.type==='ex' && clone.steps) targetDay.steps = Math.max(0, Math.round((targetDay.steps||0) + clone.steps));
+    await saveDay(targetDate);
+
+    if(action==='move'){
+      list.splice(st.idx, 1);
+      if(st.type==='ex' && item.steps) origDay.steps = Math.max(0, Math.round((origDay.steps||0) - item.steps));
+      await saveDay(st.origDate);
+    }
+  }
+
+  closeMoveEntryModal();
+  renderAll();
+  toast(action==='move' && targetDate!==st.origDate ? 'Entrée déplacée' : 'Entrée dupliquée');
+}
+
+/* ============================================================
    EXERCICE
    ============================================================ */
 function populateExerciseSelect(){
@@ -2175,10 +2423,24 @@ function addDays(date,n){ const d=new Date(date); d.setDate(d.getDate()+n); retu
 function computeStatus(dateStr, dayData){
   if(!dayData || (!dayData.meals.length && !dayData.exercises.length && !dayData.water)) return {status:'empty'};
   const eaten = dayData.meals.reduce((s,m)=>s+m.k,0);
+  const eatenC = dayData.meals.reduce((s,m)=>s+(m.c||0),0);
+  const eatenF = dayData.meals.reduce((s,m)=>s+(m.f||0),0);
+  const eatenFib = dayData.meals.reduce((s,m)=>s+(m.fib||0),0);
   const burned = dayData.exercises.reduce((s,e)=>s+e.kcal,0);
   const goal = currentGoal(dateStr);
   const budget = goal.kcal+burned;
-  const diff = eaten-budget;
+
+  // Un déficit calorique n'a d'intérêt pour la perte de gras que s'il porte
+  // sur les glucides et/ou les lipides : un déficit qui vient d'un manque de
+  // protéines n'est pas un "budget" de perte de graisse, juste un apport
+  // protéique insuffisant (mauvais pour la masse musculaire, pas un plus
+  // pour la perte de gras). On neutralise donc les protéines des deux côtés
+  // du calcul — mangé ET objectif — avant de juger si la journée est en
+  // déficit, à l'équilibre ou en dépassement.
+  const nonProtEatenKcal = eatenC*KCAL_PER_G.carb + eatenF*KCAL_PER_G.fat + eatenFib*KCAL_PER_G.fib;
+  const nonProtBudgetKcal = budget - goal.prot*KCAL_PER_G.prot;
+  const diff = nonProtEatenKcal - nonProtBudgetKcal;
+
   const threshold = goal.kcal*0.1;
   let status;
   if(Math.abs(diff)<=threshold) status='ontarget';
@@ -2410,6 +2672,10 @@ function bindEvents(){
   };
 
   document.getElementById('mealsList').addEventListener('click', async e=>{
+    const editBtn = e.target.closest('.entry-edit');
+    if(editBtn){ openEditMealEntry(parseInt(editBtn.dataset.idx)); return; }
+    const moveBtn = e.target.closest('.entry-move');
+    if(moveBtn){ openMoveEntry('meal', parseInt(moveBtn.dataset.idx)); return; }
     const btn = e.target.closest('.entry-del'); if(!btn) return;
     const day = await getDay(state.currentDate);
     day.meals.splice(parseInt(btn.dataset.idx),1);
@@ -2424,12 +2690,48 @@ function bindEvents(){
     if(delBtn){ deleteCustomFood(delBtn.dataset.id); return; }
   });
   document.getElementById('exList').addEventListener('click', async e=>{
+    const editBtn = e.target.closest('.entry-edit');
+    if(editBtn){ openEditExEntry(parseInt(editBtn.dataset.idx)); return; }
+    const moveBtn = e.target.closest('.entry-move');
+    if(moveBtn){ openMoveEntry('ex', parseInt(moveBtn.dataset.idx)); return; }
     const btn = e.target.closest('.entry-del'); if(!btn) return;
     const day = await getDay(state.currentDate);
     const removed = day.exercises.splice(parseInt(btn.dataset.idx),1)[0];
     if(removed && removed.steps) day.steps = Math.max(0, Math.round((day.steps||0) - removed.steps));
     await saveDay(state.currentDate); renderAll();
   });
+
+  // Modale dupliquer / déplacer une entrée vers un autre jour
+  document.getElementById('moveEntryConfirmBtn').onclick = confirmMoveEntry;
+  document.getElementById('closeMoveEntryModal').onclick = closeMoveEntryModal;
+
+  // Modale d'édition d'une entrée du jour (repas ou activité)
+  ['editEntryP','editEntryC','editEntryF','editEntryFib'].forEach(id=>{
+    document.getElementById(id).addEventListener('input', updateEditEntryKcalPreview);
+  });
+  document.getElementById('editEntryQty').addEventListener('input', ()=>{
+    const st = state.editingEntry;
+    if(!st || st.origQty==null || st.origQty<=0) return;
+    const newQty = parseFloat(document.getElementById('editEntryQty').value);
+    if(isNaN(newQty)) return;
+    const ratio = newQty/st.origQty;
+    document.getElementById('editEntryP').value = Math.round(st.origP*ratio*10)/10;
+    document.getElementById('editEntryC').value = Math.round(st.origC*ratio*10)/10;
+    document.getElementById('editEntryF').value = Math.round(st.origF*ratio*10)/10;
+    document.getElementById('editEntryFib').value = Math.round(st.origFib*ratio*10)/10;
+    updateEditEntryKcalPreview();
+  });
+  document.getElementById('editEntryDuration').addEventListener('input', ()=>{
+    const st = state.editingEntry;
+    if(!st || st.type!=='ex' || !st.origDuration) return;
+    const newDur = parseFloat(document.getElementById('editEntryDuration').value);
+    if(isNaN(newDur)) return;
+    const ratio = newDur/st.origDuration;
+    document.getElementById('editEntryKcalBurned').value = Math.round(st.origKcal*ratio);
+    document.getElementById('editEntrySteps').value = Math.round(st.origSteps*ratio);
+  });
+  document.getElementById('saveEditEntryBtn').onclick = saveEditEntry;
+  document.getElementById('closeEditEntryModal').onclick = closeEditEntryModal;
 
   // Settings — macros vase communicant
   document.getElementById('setKcal').oninput = e=>{
